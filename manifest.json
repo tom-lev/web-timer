@@ -35,14 +35,14 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "MultiTimer on Mobile"
+      "label": "MultiTimer Mobile View"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "MultiTimer on Desktop"
+      "label": "MultiTimer Desktop View"
     }
   ],
   "categories": [
