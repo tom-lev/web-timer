@@ -130,35 +130,44 @@ const App = (() => {
   function msRefresh() {
     if (!('mediaSession' in navigator)) return;
     const all = Object.values(timers);
-    const best = all.find(t => t.state === 'running') || all.find(t => t.state === 'paused') || all.find(t => t.state === 'done');
-    if (!best) {
+    const running = all.filter(t => t.state === 'running');
+    const paused  = all.filter(t => t.state === 'paused');
+    const done    = all.filter(t => t.state === 'done');
+    const active  = [...running, ...paused, ...done];
+
+    if (active.length === 0) {
       navigator.mediaSession.metadata = null;
       navigator.mediaSession.playbackState = 'none';
       stopSilent();
       return;
     }
+
     playSilent();
-    const icon = best.state === 'running' ? ' ▶' : best.state === 'paused' ? ' ⏸' : ' ✅';
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: formatTime(best.remaining) + icon,
-      artist: best.name,
-      album: 'MultiTimer',
-    });
-    navigator.mediaSession.playbackState = best.state === 'running' ? 'playing' : 'paused';
+
+    const visible = running.length > 0 ? running : (paused.length > 0 ? paused : done);
+    const title  = visible.map(t => formatTime(t.remaining)).join(' · ');
+    const artist = visible.map(t => t.name).join(' · ');
+
+    navigator.mediaSession.metadata = new MediaMetadata({ title, artist, album: 'MultiTimer' });
+    navigator.mediaSession.playbackState = running.length > 0 ? 'playing' : 'paused';
   }
 
   function setupMediaActions() {
     if (!('mediaSession' in navigator)) return;
     navigator.mediaSession.setActionHandler('play', () => {
-      const entry = Object.entries(timers).find(([,t]) => t.state === 'paused');
-      if (entry) startTimer(Number(entry[0]));
+      Object.entries(timers)
+        .filter(([, t]) => t.state === 'paused')
+        .forEach(([id]) => startTimer(Number(id)));
     });
     navigator.mediaSession.setActionHandler('pause', () => {
-      const entry = Object.entries(timers).find(([,t]) => t.state === 'running');
-      if (entry) pauseTimer(Number(entry[0]));
+      Object.entries(timers)
+        .filter(([, t]) => t.state === 'running')
+        .forEach(([id]) => pauseTimer(Number(id)));
     });
     navigator.mediaSession.setActionHandler('stop', () => {
-      Object.entries(timers).forEach(([id, t]) => { if (t.state === 'done') stopAlarm(Number(id)); });
+      Object.entries(timers)
+        .filter(([, t]) => t.state === 'done')
+        .forEach(([id]) => stopAlarm(Number(id)));
     });
   }
 
@@ -372,31 +381,6 @@ const App = (() => {
 
   init();
   return { addTimer, startTimer, pauseTimer, resetTimer, stopAlarm, removeTimer, savePreset, deletePreset };
-})();
-
-// ── Media Session Handler ──────────────────────────────────────────────────
-(function initMediaSession() {
-  if (!('mediaSession' in navigator)) return;
-  const snd = new window.Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
-  snd.loop = true;
-  snd.volume = 0.001;
-
-  document.addEventListener('click', function unlock() {
-    snd.play().catch(() => {});
-    document.removeEventListener('click', unlock, true);
-  }, true);
-
-  function updateNotification() {
-    const cards = Array.from(document.querySelectorAll('.timer-card[data-id]')).map(card => {
-      const id = Number(card.dataset.id);
-      return { id, name: card.querySelector('.timer-name').textContent, timeStr: $(`display-${id}`).textContent, state: $(`status-${id}`).textContent.toLowerCase() };
-    });
-    const best = cards.find(t => t.state === 'running') || cards.find(t => t.state === 'paused') || cards.find(t => t.state === 'done');
-    if (!best) { navigator.mediaSession.metadata = null; return; }
-    if (best.state === 'running') snd.play().catch(() => {}); else snd.pause();
-    navigator.mediaSession.metadata = new MediaMetadata({ title: best.timeStr, artist: best.name, album: 'MultiTimer' });
-  }
-  setInterval(updateNotification, 1000);
 })();
 
 // ── Service Worker ─────────────────────────────────────────────────────────
