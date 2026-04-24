@@ -1,4 +1,5 @@
 {
+  "id": "/web-timer/",
   "name": "MultiTimer — Precision Timers",
   "short_name": "MultiTimer",
   "description": "Background-safe precision timers with notifications",
@@ -34,7 +35,7 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "MultiTimer on Android"
+      "label": "MultiTimer on Mobile"
     },
     {
       "src": "icon-512.png",
@@ -44,12 +45,21 @@
       "label": "MultiTimer on Desktop"
     }
   ],
-  "categories": ["utilities", "productivity"],
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
   "shortcuts": [
     {
       "name": "Add Timer",
+      "short_name": "Add",
       "url": "./index.html",
-      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
