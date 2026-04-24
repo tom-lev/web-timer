@@ -186,6 +186,87 @@ main {
 .btn-icon:hover { background: var(--surface2); color: var(--text); }
 .btn-icon:active { transform: scale(.93); }
 
+/* ── Sound select ── */
+.sound-select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 9px 13px;
+  font-size: .95rem;
+  outline: none;
+  cursor: pointer;
+  width: 100%;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.sound-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(108,99,255,.25);
+}
+.sound-select option { background: var(--surface2); }
+
+/* ── Sound badge on timer card ── */
+.sound-badge {
+  font-size: .7rem;
+  font-weight: 600;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 2px 8px;
+  color: var(--muted);
+  white-space: nowrap;
+  margin-left: auto;
+  margin-right: 4px;
+}
+
+/* ── Alarm banner ── */
+.alarm-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(248,113,113,.12);
+  border: 1px solid var(--red);
+  border-radius: 10px;
+  padding: 10px 14px;
+  animation: alarm-flash 1s ease infinite;
+}
+
+@keyframes alarm-flash {
+  0%,100% { background: rgba(248,113,113,.10); }
+  50%      { background: rgba(248,113,113,.22); }
+}
+
+.alarm-banner-text {
+  font-size: .875rem;
+  font-weight: 600;
+  color: var(--red);
+}
+
+.btn-stop-alarm {
+  background: var(--red);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: .85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--transition), transform var(--transition);
+  white-space: nowrap;
+}
+.btn-stop-alarm:hover { background: #ef4444; }
+.btn-stop-alarm:active { transform: scale(.95); }
+
+/* ringing card pulse */
+.timer-card.ringing {
+  animation: ring-pulse .9s ease infinite;
+}
+@keyframes ring-pulse {
+  0%,100% { box-shadow: 0 0 0 1px var(--red), var(--shadow); border-color: var(--red); }
+  50%      { box-shadow: 0 0 0 5px rgba(248,113,113,.35), var(--shadow); border-color: var(--red); }
+}
+
 /* ── Presets panel ── */
 .presets-section {
   background: var(--surface);

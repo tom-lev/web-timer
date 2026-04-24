@@ -42,10 +42,26 @@
       </div>
     </div>
 
-    <button class="btn btn-primary" onclick="App.addTimer()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      Add Timer
-    </button>
+    <div class="field" style="min-width:150px;">
+      <label for="t-sound">Alarm Sound</label>
+      <select id="t-sound" class="sound-select">
+        <option value="chime">🎵 Chime</option>
+        <option value="bell">🔔 Bell</option>
+        <option value="alarm">🚨 Alarm</option>
+        <option value="beep">📳 Beep</option>
+        <option value="pulse">💥 Pulse</option>
+      </select>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:flex-end;">
+      <button class="btn btn-ghost btn-sm" onclick="Audio.preview($('t-sound').value)" title="Preview sound" style="padding:9px 12px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      </button>
+      <button class="btn btn-primary" onclick="App.addTimer()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Timer
+      </button>
+    </div>
   </div>
 
   <!-- Presets -->
@@ -97,7 +113,7 @@ function showToast(msg, type = 'success') {
   el.className = `toast ${type}`;
   el.textContent = msg;
   $('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => el.remove(), 3500);
 }
 
 // ── Color palette ──────────────────────────────────────────────────────────
@@ -106,27 +122,104 @@ const COLORS = ['#6c63ff','#ff6584','#4ade80','#facc15','#38bdf8','#fb923c','#a7
 let colorIndex = 0;
 function nextColor() { return COLORS[colorIndex++ % COLORS.length]; }
 
-// ── Audio ──────────────────────────────────────────────────────────────────
+// ── Audio engine ───────────────────────────────────────────────────────────
 
-function playDoneSound() {
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
-  notes.forEach((freq, i) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
+const Audio = (() => {
+  let ctx = null;
+
+  function getCtx() {
+    if (!ctx || ctx.state === 'closed') ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+
+  function tone(freq, startAt, duration, type = 'sine', peakGain = 0.38) {
+    const c = getCtx();
+    const osc  = c.createOscillator();
+    const gain = c.createGain();
+    osc.type = type;
     osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.18);
-    gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + i * 0.18 + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.4);
+    gain.gain.setValueAtTime(0, c.currentTime + startAt);
+    gain.gain.linearRampToValueAtTime(peakGain, c.currentTime + startAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + startAt + duration);
     osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime + i * 0.18);
-    osc.stop(ctx.currentTime + i * 0.18 + 0.5);
-  });
-}
+    gain.connect(c.destination);
+    osc.start(c.currentTime + startAt);
+    osc.stop(c.currentTime + startAt + duration + 0.05);
+  }
 
-// ── Web Worker ────────────────────────────────────────────────────────────
+  // ── Sound definitions (one cycle each) ──
+
+  const sounds = {
+    // Ascending musical arpeggio C5→E5→G5→C6
+    chime() {
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, i * 0.2, 0.55, 'sine', 0.36));
+    },
+
+    // Single resonant bell with harmonics (3-second tail)
+    bell() {
+      const c = getCtx();
+      const fundamental = 440;
+      [[1, 0.5], [2.76, 0.25], [5.4, 0.12], [8.93, 0.07]].forEach(([ratio, amp]) => {
+        tone(fundamental * ratio, 0, 3.0, 'sine', amp);
+      });
+    },
+
+    // Classic two-tone emergency alarm
+    alarm() {
+      // High → low → high → low  (each phase 0.22s)
+      [0, 0.44].forEach(t => tone(960, t,        0.4, 'square', 0.18));
+      [0.22, 0.66].forEach(t => tone(760, t,     0.4, 'square', 0.18));
+    },
+
+    // Three short electronic beeps
+    beep() {
+      [0, 0.22, 0.44].forEach(t => tone(880, t, 0.14, 'sine', 0.4));
+    },
+
+    // Rapid urgent pulses (5 quick pops)
+    pulse() {
+      for (let i = 0; i < 5; i++) {
+        tone(1200 - i * 60, i * 0.12, 0.08, 'sawtooth', 0.3);
+      }
+    },
+  };
+
+  // Cycle durations in ms — how long to wait before repeating
+  const cycleDuration = { chime: 2200, bell: 3500, alarm: 900, beep: 1100, pulse: 1000 };
+
+  // Active alarm loops: { timerId: intervalHandle }
+  const loops = {};
+
+  function preview(soundKey) {
+    if (sounds[soundKey]) sounds[soundKey]();
+  }
+
+  function startLoop(timerId, soundKey) {
+    stopLoop(timerId); // clear any existing
+    const fn = sounds[soundKey] || sounds.chime;
+    fn(); // play immediately
+    const period = cycleDuration[soundKey] || 2000;
+    loops[timerId] = setInterval(fn, period);
+  }
+
+  function stopLoop(timerId) {
+    if (loops[timerId] != null) {
+      clearInterval(loops[timerId]);
+      delete loops[timerId];
+    }
+  }
+
+  function isLooping(timerId) { return loops[timerId] != null; }
+
+  return { preview, startLoop, stopLoop, isLooping };
+})();
+
+// ── Sound metadata (labels + icons for UI) ────────────────────────────────
+
+const SOUND_LABEL = { chime:'🎵 Chime', bell:'🔔 Bell', alarm:'🚨 Alarm', beep:'📳 Beep', pulse:'💥 Pulse' };
+
+// ── Web Worker (inlined blob) ─────────────────────────────────────────────
 
 const workerBlob = new Blob([`
 let timers = {};
@@ -172,26 +265,27 @@ const worker = new Worker(URL.createObjectURL(workerBlob));
 
 const App = (() => {
   const RING_R = 52;
-  const CIRC = 2 * Math.PI * RING_R;
-  let timers = {};   // { id: { name, color, total, remaining, state } }
-  let uid = 1;
+  const CIRC   = 2 * Math.PI * RING_R;
+  let timers   = {};  // { id: { name, color, sound, total, remaining, state, hours, minutes, seconds } }
+  let uid      = 1;
 
-  // state: 'idle' | 'running' | 'paused' | 'done'
-
-  // ── Worker messages ──
+  // ── Worker messages ──────────────────────────────────────────────────────
   worker.onmessage = ({ data }) => {
     const t = timers[data.id];
     if (!t) return;
+
     if (data.type === 'tick') {
       t.remaining = data.remaining;
       renderTimerFace(data.id);
+
     } else if (data.type === 'done') {
       t.remaining = 0;
       t.state = 'done';
       renderTimerFace(data.id);
       updateCardState(data.id);
-      playDoneSound();
-      showToast(`"${t.name}" finished!`, 'success');
+      Audio.startLoop(data.id, t.sound);
+      showToast(`"${t.name}" finished! Tap Stop Alarm to silence.`, 'success');
+
     } else if (data.type === 'paused') {
       t.remaining = data.remaining;
       t.state = 'paused';
@@ -200,19 +294,20 @@ const App = (() => {
     }
   };
 
-  // ── Timer management ──
+  // ── Timer management ─────────────────────────────────────────────────────
   function addTimer(preset = null) {
     const name    = preset ? preset.name    : ($('timer-name').value.trim() || 'Timer');
     const hours   = preset ? preset.hours   : parseInt($('t-hours').value)   || 0;
     const minutes = preset ? preset.minutes : parseInt($('t-minutes').value) || 0;
     const seconds = preset ? preset.seconds : parseInt($('t-seconds').value) || 0;
+    const sound   = preset ? (preset.sound || 'chime') : $('t-sound').value;
     const total   = hmsToMs(hours, minutes, seconds);
 
     if (total <= 0) { showToast('Set a duration > 0', 'error'); return; }
 
-    const id    = uid++;
+    const id   = uid++;
     const color = nextColor();
-    timers[id]  = { name, color, total, remaining: total, state: 'idle', hours, minutes, seconds };
+    timers[id] = { name, color, sound, total, remaining: total, state: 'idle', hours, minutes, seconds };
 
     renderTimer(id);
     if (!preset) $('timer-name').value = '';
@@ -221,7 +316,9 @@ const App = (() => {
   function startTimer(id) {
     const t = timers[id];
     if (!t || t.state === 'running') return;
-    if (t.state === 'done') { t.remaining = t.total; }
+    // If alarm was ringing, stop it first
+    Audio.stopLoop(id);
+    if (t.state === 'done') t.remaining = t.total;
     t.state = 'running';
     worker.postMessage({ cmd: 'start', id, remaining: t.remaining });
     updateCardState(id);
@@ -232,28 +329,34 @@ const App = (() => {
     const t = timers[id];
     if (!t || t.state !== 'running') return;
     worker.postMessage({ cmd: 'pause', id });
-    // state updated via worker 'paused' message
   }
 
   function resetTimer(id) {
     const t = timers[id];
     if (!t) return;
     worker.postMessage({ cmd: 'stop', id });
+    Audio.stopLoop(id);
     t.remaining = t.total;
     t.state = 'idle';
     renderTimerFace(id);
     updateCardState(id);
   }
 
+  function stopAlarm(id) {
+    Audio.stopLoop(id);
+    updateCardState(id); // re-render buttons without alarm banner
+  }
+
   function removeTimer(id) {
     worker.postMessage({ cmd: 'stop', id });
+    Audio.stopLoop(id);
     delete timers[id];
     const card = document.querySelector(`[data-id="${id}"]`);
     if (card) card.remove();
     checkEmpty();
   }
 
-  // ── Presets ──
+  // ── Presets ──────────────────────────────────────────────────────────────
   function savePreset(id) {
     const t = timers[id];
     if (!t) return;
@@ -262,7 +365,7 @@ const App = (() => {
     if (presets.some(p => `${p.name}|${hmsToMs(p.hours,p.minutes,p.seconds)}` === key)) {
       showToast('Preset already saved', 'error'); return;
     }
-    presets.push({ name: t.name, hours: t.hours, minutes: t.minutes, seconds: t.seconds });
+    presets.push({ name: t.name, hours: t.hours, minutes: t.minutes, seconds: t.seconds, sound: t.sound });
     localStorage.setItem('mt-presets', JSON.stringify(presets));
     renderPresets();
     showToast(`Preset "${t.name}" saved`);
@@ -280,7 +383,7 @@ const App = (() => {
     catch { return []; }
   }
 
-  // ── Rendering ──
+  // ── Rendering ─────────────────────────────────────────────────────────────
   function ringOffset(remaining, total) {
     const frac = total > 0 ? remaining / total : 0;
     return CIRC * (1 - frac);
@@ -294,10 +397,9 @@ const App = (() => {
   }
 
   function renderTimer(id) {
-    const t = timers[id];
+    const t    = timers[id];
     const grid = $('timers-grid');
 
-    // Remove empty state
     const empty = grid.querySelector('.empty-state');
     if (empty) empty.remove();
 
@@ -309,6 +411,7 @@ const App = (() => {
       <div class="timer-header">
         <div class="timer-color-dot" style="background:${t.color}"></div>
         <span class="timer-name" title="${t.name}">${t.name}</span>
+        <span class="sound-badge" id="sound-badge-${id}" title="Alarm sound">${SOUND_LABEL[t.sound] || t.sound}</span>
         <button class="btn-icon" onclick="App.removeTimer(${id})" title="Delete timer">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -326,16 +429,22 @@ const App = (() => {
         </div>
       </div>
 
-      <div class="timer-controls">
+      <!-- Alarm banner (hidden until done + ringing) -->
+      <div class="alarm-banner" id="alarm-banner-${id}" style="display:none;">
+        <span class="alarm-banner-text">🔔 Alarm ringing!</span>
+        <button class="btn btn-stop-alarm" onclick="App.stopAlarm(${id})">
+          Stop Alarm
+        </button>
+      </div>
+
+      <div class="timer-controls" id="controls-${id}">
         <button class="btn btn-primary" id="btn-start-${id}" onclick="App.startTimer(${id})">
           ▶ Start
         </button>
         <button class="btn btn-ghost" id="btn-pause-${id}" onclick="App.pauseTimer(${id})" disabled>
           ⏸ Pause
         </button>
-        <button class="btn btn-ghost btn-sm" onclick="App.resetTimer(${id})">
-          ↺
-        </button>
+        <button class="btn btn-ghost btn-sm" onclick="App.resetTimer(${id})" title="Reset">↺</button>
       </div>
 
       <div class="save-preset-row">
@@ -350,10 +459,10 @@ const App = (() => {
   }
 
   function renderTimerFace(id) {
-    const t = timers[id];
+    const t    = timers[id];
     if (!t) return;
-    const disp  = $(`display-${id}`);
-    const ring  = $(`ring-${id}`);
+    const disp = $(`display-${id}`);
+    const ring = $(`ring-${id}`);
     if (!disp || !ring) return;
     disp.textContent = formatTime(t.remaining);
     ring.style.strokeDashoffset = ringOffset(t.remaining, t.total);
@@ -365,25 +474,31 @@ const App = (() => {
     const card = document.querySelector(`[data-id="${id}"]`);
     if (!t || !card) return;
 
-    card.className = `timer-card ${t.state === 'running' ? 'running' : t.state === 'done' ? 'done' : ''}`;
+    const ringing = Audio.isLooping(id);
 
-    const statusEl   = $(`status-${id}`);
-    const btnStart   = $(`btn-start-${id}`);
-    const btnPause   = $(`btn-pause-${id}`);
+    card.className = `timer-card ${t.state === 'running' ? 'running' : t.state === 'done' ? (ringing ? 'done ringing' : 'done') : ''}`;
+
+    const statusEl = $(`status-${id}`);
+    const btnStart = $(`btn-start-${id}`);
+    const btnPause = $(`btn-pause-${id}`);
+    const banner   = $(`alarm-banner-${id}`);
 
     const stateMap = {
-      idle:    { label:'READY',   cls:'status-idle',    startTxt:'▶ Start', startDis:false, pauseDis:true  },
-      running: { label:'RUNNING', cls:'status-running', startTxt:'▶ Start', startDis:true,  pauseDis:false },
-      paused:  { label:'PAUSED',  cls:'status-paused',  startTxt:'▶ Resume',startDis:false, pauseDis:true  },
-      done:    { label:'DONE',    cls:'status-done',    startTxt:'↺ Restart',startDis:false, pauseDis:true  },
+      idle:    { label:'READY',   cls:'status-idle',    startTxt:'▶ Start',   startDis:false, pauseDis:true  },
+      running: { label:'RUNNING', cls:'status-running', startTxt:'▶ Start',   startDis:true,  pauseDis:false },
+      paused:  { label:'PAUSED',  cls:'status-paused',  startTxt:'▶ Resume',  startDis:false, pauseDis:true  },
+      done:    { label:'DONE',    cls:'status-done',    startTxt:'↺ Restart', startDis:false, pauseDis:true  },
     };
 
     const s = stateMap[t.state] || stateMap.idle;
     statusEl.textContent = s.label;
-    statusEl.className = `timer-status ${s.cls}`;
+    statusEl.className   = `timer-status ${s.cls}`;
     btnStart.textContent = s.startTxt;
-    btnStart.disabled = s.startDis;
-    btnPause.disabled = s.pauseDis;
+    btnStart.disabled    = s.startDis;
+    btnPause.disabled    = s.pauseDis;
+
+    // Show alarm banner only when done AND sound loop is active
+    if (banner) banner.style.display = ringing ? 'flex' : 'none';
   }
 
   function renderPresets() {
@@ -399,10 +514,11 @@ const App = (() => {
     presets.forEach((p, i) => {
       const chip = document.createElement('div');
       chip.className = 'preset-chip';
-      const dur = hmsToMs(p.hours, p.minutes, p.seconds);
+      const dur   = hmsToMs(p.hours, p.minutes, p.seconds);
+      const sound = p.sound || 'chime';
       chip.innerHTML = `
         <button onclick="App.addTimer(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="Load preset">
-          ${p.name} · ${formatTime(dur)}
+          ${p.name} · ${formatTime(dur)} · ${SOUND_LABEL[sound] || sound}
         </button>
         <button class="del-preset" onclick="App.deletePreset(${i})" title="Delete preset">✕</button>
       `;
@@ -417,19 +533,17 @@ const App = (() => {
     }
   }
 
-  // ── Init ──
+  // ── Init ─────────────────────────────────────────────────────────────────
   function init() {
     renderPresets();
-
-    // Enter key on inputs
-    ['timer-name','t-hours','t-minutes','t-seconds'].forEach(id => {
-      $(id).addEventListener('keydown', e => { if (e.key === 'Enter') addTimer(); });
+    ['timer-name','t-hours','t-minutes','t-seconds'].forEach(elId => {
+      $(elId).addEventListener('keydown', e => { if (e.key === 'Enter') addTimer(); });
     });
   }
 
   init();
 
-  return { addTimer, startTimer, pauseTimer, resetTimer, removeTimer, savePreset, deletePreset };
+  return { addTimer, startTimer, pauseTimer, resetTimer, stopAlarm, removeTimer, savePreset, deletePreset };
 })();
 </script>
 </body>
