@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MultiTimer — Precision Timers</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <span class="logo">⏱ MultiTimer</span>
+  <span class="tagline">Background-safe precision timers</span>
+</header>
+
+<main>
+  <!-- Add Timer -->
+  <div class="add-card">
+    <h2>Add New Timer</h2>
+
+    <div class="field" style="flex:2; min-width:140px;">
+      <label for="timer-name">Name</label>
+      <input type="text" id="timer-name" placeholder="e.g. Pomodoro" maxlength="40" />
+    </div>
+
+    <div class="field-time" style="flex:3; min-width:200px;">
+      <div class="field">
+        <label for="t-hours">Hours</label>
+        <input type="number" id="t-hours" min="0" max="99" value="0" />
+      </div>
+      <span style="padding-bottom:9px;">:</span>
+      <div class="field">
+        <label for="t-minutes">Min</label>
+        <input type="number" id="t-minutes" min="0" max="59" value="5" />
+      </div>
+      <span style="padding-bottom:9px;">:</span>
+      <div class="field">
+        <label for="t-seconds">Sec</label>
+        <input type="number" id="t-seconds" min="0" max="59" value="0" />
+      </div>
+    </div>
+
+    <button class="btn btn-primary" onclick="App.addTimer()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add Timer
+    </button>
+  </div>
+
+  <!-- Presets -->
+  <div class="presets-section">
+    <h2>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+      Saved Presets
+    </h2>
+    <div class="presets-list" id="presets-list">
+      <span class="no-presets">No presets saved yet.</span>
+    </div>
+  </div>
+
+  <!-- Timers -->
+  <div class="timers-grid" id="timers-grid">
+    <div class="empty-state">
+      <div class="icon">⏳</div>
+      <p>No timers yet. Add one above!</p>
+    </div>
+  </div>
+</main>
+
+<div id="toast-container"></div>
+
+<script>
+// ── Utilities ──────────────────────────────────────────────────────────────
+
+const $ = id => document.getElementById(id);
+
+function pad(n) { return String(n).padStart(2, '0'); }
+
+function msToHMS(ms) {
+  const totalSec = Math.ceil(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return { h, m, s };
+}
+
+function hmsToMs(h, m, s) { return ((h * 3600) + (m * 60) + s) * 1000; }
+
+function formatTime(ms) {
+  const { h, m, s } = msToHMS(ms);
+  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
+function showToast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  $('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ── Color palette ──────────────────────────────────────────────────────────
+
+const COLORS = ['#6c63ff','#ff6584','#4ade80','#facc15','#38bdf8','#fb923c','#a78bfa','#34d399'];
+let colorIndex = 0;
+function nextColor() { return COLORS[colorIndex++ % COLORS.length]; }
+
+// ── Audio ──────────────────────────────────────────────────────────────────
+
+function playDoneSound() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.18);
+    gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + i * 0.18 + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.4);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime + i * 0.18);
+    osc.stop(ctx.currentTime + i * 0.18 + 0.5);
+  });
+}
+
+// ── Web Worker ────────────────────────────────────────────────────────────
+
+const workerBlob = new Blob([`
+let timers = {};
+function startTimer(id, remaining) {
+  if (timers[id]) clearInterval(timers[id].interval);
+  timers[id] = { remaining, lastTick: Date.now(), interval: null };
+  timers[id].interval = setInterval(() => {
+    const now = Date.now();
+    const elapsed = now - timers[id].lastTick;
+    timers[id].lastTick = now;
+    timers[id].remaining = Math.max(0, timers[id].remaining - elapsed);
+    postMessage({ type: 'tick', id, remaining: timers[id].remaining });
+    if (timers[id].remaining <= 0) {
+      clearInterval(timers[id].interval);
+      delete timers[id];
+      postMessage({ type: 'done', id });
+    }
+  }, 250);
+}
+function pauseTimer(id) {
+  if (timers[id]) {
+    clearInterval(timers[id].interval);
+    const remaining = timers[id].remaining;
+    delete timers[id];
+    postMessage({ type: 'paused', id, remaining });
+  }
+}
+function stopTimer(id) {
+  if (timers[id]) { clearInterval(timers[id].interval); delete timers[id]; }
+}
+self.onmessage = ({ data }) => {
+  switch (data.cmd) {
+    case 'start': startTimer(data.id, data.remaining); break;
+    case 'pause': pauseTimer(data.id); break;
+    case 'stop':  stopTimer(data.id); break;
+  }
+};
+`], { type: 'application/javascript' });
+
+const worker = new Worker(URL.createObjectURL(workerBlob));
+
+// ── App ────────────────────────────────────────────────────────────────────
+
+const App = (() => {
+  const RING_R = 52;
+  const CIRC = 2 * Math.PI * RING_R;
+  let timers = {};   // { id: { name, color, total, remaining, state } }
+  let uid = 1;
+
+  // state: 'idle' | 'running' | 'paused' | 'done'
+
+  // ── Worker messages ──
+  worker.onmessage = ({ data }) => {
+    const t = timers[data.id];
+    if (!t) return;
+    if (data.type === 'tick') {
+      t.remaining = data.remaining;
+      renderTimerFace(data.id);
+    } else if (data.type === 'done') {
+      t.remaining = 0;
+      t.state = 'done';
+      renderTimerFace(data.id);
+      updateCardState(data.id);
+      playDoneSound();
+      showToast(`"${t.name}" finished!`, 'success');
+    } else if (data.type === 'paused') {
+      t.remaining = data.remaining;
+      t.state = 'paused';
+      renderTimerFace(data.id);
+      updateCardState(data.id);
+    }
+  };
+
+  // ── Timer management ──
+  function addTimer(preset = null) {
+    const name    = preset ? preset.name    : ($('timer-name').value.trim() || 'Timer');
+    const hours   = preset ? preset.hours   : parseInt($('t-hours').value)   || 0;
+    const minutes = preset ? preset.minutes : parseInt($('t-minutes').value) || 0;
+    const seconds = preset ? preset.seconds : parseInt($('t-seconds').value) || 0;
+    const total   = hmsToMs(hours, minutes, seconds);
+
+    if (total <= 0) { showToast('Set a duration > 0', 'error'); return; }
+
+    const id    = uid++;
+    const color = nextColor();
+    timers[id]  = { name, color, total, remaining: total, state: 'idle', hours, minutes, seconds };
+
+    renderTimer(id);
+    if (!preset) $('timer-name').value = '';
+  }
+
+  function startTimer(id) {
+    const t = timers[id];
+    if (!t || t.state === 'running') return;
+    if (t.state === 'done') { t.remaining = t.total; }
+    t.state = 'running';
+    worker.postMessage({ cmd: 'start', id, remaining: t.remaining });
+    updateCardState(id);
+    renderTimerFace(id);
+  }
+
+  function pauseTimer(id) {
+    const t = timers[id];
+    if (!t || t.state !== 'running') return;
+    worker.postMessage({ cmd: 'pause', id });
+    // state updated via worker 'paused' message
+  }
+
+  function resetTimer(id) {
+    const t = timers[id];
+    if (!t) return;
+    worker.postMessage({ cmd: 'stop', id });
+    t.remaining = t.total;
+    t.state = 'idle';
+    renderTimerFace(id);
+    updateCardState(id);
+  }
+
+  function removeTimer(id) {
+    worker.postMessage({ cmd: 'stop', id });
+    delete timers[id];
+    const card = document.querySelector(`[data-id="${id}"]`);
+    if (card) card.remove();
+    checkEmpty();
+  }
+
+  // ── Presets ──
+  function savePreset(id) {
+    const t = timers[id];
+    if (!t) return;
+    const presets = loadPresets();
+    const key = `${t.name}|${t.total}`;
+    if (presets.some(p => `${p.name}|${hmsToMs(p.hours,p.minutes,p.seconds)}` === key)) {
+      showToast('Preset already saved', 'error'); return;
+    }
+    presets.push({ name: t.name, hours: t.hours, minutes: t.minutes, seconds: t.seconds });
+    localStorage.setItem('mt-presets', JSON.stringify(presets));
+    renderPresets();
+    showToast(`Preset "${t.name}" saved`);
+  }
+
+  function deletePreset(idx) {
+    const presets = loadPresets();
+    presets.splice(idx, 1);
+    localStorage.setItem('mt-presets', JSON.stringify(presets));
+    renderPresets();
+  }
+
+  function loadPresets() {
+    try { return JSON.parse(localStorage.getItem('mt-presets')) || []; }
+    catch { return []; }
+  }
+
+  // ── Rendering ──
+  function ringOffset(remaining, total) {
+    const frac = total > 0 ? remaining / total : 0;
+    return CIRC * (1 - frac);
+  }
+
+  function ringColor(remaining, total) {
+    const pct = total > 0 ? remaining / total : 0;
+    if (pct > 0.5) return '#6c63ff';
+    if (pct > 0.2) return '#facc15';
+    return '#f87171';
+  }
+
+  function renderTimer(id) {
+    const t = timers[id];
+    const grid = $('timers-grid');
+
+    // Remove empty state
+    const empty = grid.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    const card = document.createElement('div');
+    card.className = 'timer-card';
+    card.dataset.id = id;
+
+    card.innerHTML = `
+      <div class="timer-header">
+        <div class="timer-color-dot" style="background:${t.color}"></div>
+        <span class="timer-name" title="${t.name}">${t.name}</span>
+        <button class="btn-icon" onclick="App.removeTimer(${id})" title="Delete timer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="timer-visual">
+        <svg class="progress-ring" width="130" height="130" viewBox="0 0 130 130">
+          <circle class="ring-bg" cx="65" cy="65" r="${RING_R}" stroke-width="10"/>
+          <circle class="ring-fill" id="ring-${id}" cx="65" cy="65" r="${RING_R}" stroke-width="10"
+            stroke-dasharray="${CIRC}" stroke-dashoffset="0" stroke="${t.color}"/>
+        </svg>
+        <div class="timer-time-overlay">
+          <div class="timer-display" id="display-${id}">${formatTime(t.total)}</div>
+          <div class="timer-status status-idle" id="status-${id}">READY</div>
+        </div>
+      </div>
+
+      <div class="timer-controls">
+        <button class="btn btn-primary" id="btn-start-${id}" onclick="App.startTimer(${id})">
+          ▶ Start
+        </button>
+        <button class="btn btn-ghost" id="btn-pause-${id}" onclick="App.pauseTimer(${id})" disabled>
+          ⏸ Pause
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="App.resetTimer(${id})">
+          ↺
+        </button>
+      </div>
+
+      <div class="save-preset-row">
+        <button class="btn btn-ghost btn-sm" onclick="App.savePreset(${id})">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save as Preset
+        </button>
+      </div>
+    `;
+
+    grid.appendChild(card);
+  }
+
+  function renderTimerFace(id) {
+    const t = timers[id];
+    if (!t) return;
+    const disp  = $(`display-${id}`);
+    const ring  = $(`ring-${id}`);
+    if (!disp || !ring) return;
+    disp.textContent = formatTime(t.remaining);
+    ring.style.strokeDashoffset = ringOffset(t.remaining, t.total);
+    ring.style.stroke = t.state === 'done' ? '#4ade80' : ringColor(t.remaining, t.total);
+  }
+
+  function updateCardState(id) {
+    const t    = timers[id];
+    const card = document.querySelector(`[data-id="${id}"]`);
+    if (!t || !card) return;
+
+    card.className = `timer-card ${t.state === 'running' ? 'running' : t.state === 'done' ? 'done' : ''}`;
+
+    const statusEl   = $(`status-${id}`);
+    const btnStart   = $(`btn-start-${id}`);
+    const btnPause   = $(`btn-pause-${id}`);
+
+    const stateMap = {
+      idle:    { label:'READY',   cls:'status-idle',    startTxt:'▶ Start', startDis:false, pauseDis:true  },
+      running: { label:'RUNNING', cls:'status-running', startTxt:'▶ Start', startDis:true,  pauseDis:false },
+      paused:  { label:'PAUSED',  cls:'status-paused',  startTxt:'▶ Resume',startDis:false, pauseDis:true  },
+      done:    { label:'DONE',    cls:'status-done',    startTxt:'↺ Restart',startDis:false, pauseDis:true  },
+    };
+
+    const s = stateMap[t.state] || stateMap.idle;
+    statusEl.textContent = s.label;
+    statusEl.className = `timer-status ${s.cls}`;
+    btnStart.textContent = s.startTxt;
+    btnStart.disabled = s.startDis;
+    btnPause.disabled = s.pauseDis;
+  }
+
+  function renderPresets() {
+    const list    = $('presets-list');
+    const presets = loadPresets();
+    list.innerHTML = '';
+
+    if (!presets.length) {
+      list.innerHTML = '<span class="no-presets">No presets saved yet.</span>';
+      return;
+    }
+
+    presets.forEach((p, i) => {
+      const chip = document.createElement('div');
+      chip.className = 'preset-chip';
+      const dur = hmsToMs(p.hours, p.minutes, p.seconds);
+      chip.innerHTML = `
+        <button onclick="App.addTimer(${JSON.stringify(p).replace(/"/g,'&quot;')})" title="Load preset">
+          ${p.name} · ${formatTime(dur)}
+        </button>
+        <button class="del-preset" onclick="App.deletePreset(${i})" title="Delete preset">✕</button>
+      `;
+      list.appendChild(chip);
+    });
+  }
+
+  function checkEmpty() {
+    const grid = $('timers-grid');
+    if (!grid.querySelector('.timer-card')) {
+      grid.innerHTML = `<div class="empty-state"><div class="icon">⏳</div><p>No timers yet. Add one above!</p></div>`;
+    }
+  }
+
+  // ── Init ──
+  function init() {
+    renderPresets();
+
+    // Enter key on inputs
+    ['timer-name','t-hours','t-minutes','t-seconds'].forEach(id => {
+      $(id).addEventListener('keydown', e => { if (e.key === 'Enter') addTimer(); });
+    });
+  }
+
+  init();
+
+  return { addTimer, startTimer, pauseTimer, resetTimer, removeTimer, savePreset, deletePreset };
+})();
+</script>
+</body>
+</html>
