@@ -2,15 +2,17 @@
 // Caches the app shell for offline use and stays alive to support
 // the Media Session notification.
 
-const CACHE_NAME = 'multitimer-v1';
+const CACHE_NAME = 'multitimer-v3';
 
 // App shell: everything needed to run offline
 const PRECACHE = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/timer-worker.js',
-  '/manifest.json',
+  './',
+  './index.html',
+  './style.css',
+  './timer-worker.js',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
   // Google Fonts (cached on first load)
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
 ];
@@ -78,7 +80,7 @@ self.addEventListener('fetch', event => {
       }).catch(() => {
         // Fallback for navigation requests
         if (request.mode === 'navigate') {
-          return caches.match('/index.html');
+          return caches.match('./index.html');
         }
       });
     })
