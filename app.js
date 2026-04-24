@@ -149,10 +149,9 @@ const App = (() => {
     }
 
     const visible = running.length > 0 ? running : (paused.length > 0 ? paused : done);
-    const title  = visible.map(t => formatTime(t.remaining)).join(' · ');
-    const artist = visible.map(t => t.name).join(' · ');
+    const title  = visible.map(t => `${t.name}  ${formatTime(t.remaining)}`).join('   ·   ');
 
-    navigator.mediaSession.metadata = new MediaMetadata({ title, artist, album: 'MultiTimer' });
+    navigator.mediaSession.metadata = new MediaMetadata({ title, artist: 'MultiTimer', album: '' });
     navigator.mediaSession.playbackState = running.length > 0 ? 'playing' : 'paused';
   }
 
