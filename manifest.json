@@ -1,10 +1,10 @@
 {
-  "id": "/index.html",
+  "id": "./",
   "name": "MultiTimer — Precision Timers",
   "short_name": "MultiTimer",
   "description": "Background-safe precision timers with notifications",
-  "start_url": "/index.html",
-  "scope": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0f1117",
@@ -29,7 +29,7 @@
       "name": "Add Timer",
       "short_name": "Add",
       "description": "Open MultiTimer to add a new timer",
-      "url": "/index.html",
+      "url": "./",
       "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
     }
   ]
