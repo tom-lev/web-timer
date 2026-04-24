@@ -41,6 +41,11 @@
     <span class="app-logo">New Timer</span>
   </header>
 
+  <div id="edit-banner" class="edit-banner" style="display:none;margin:14px 16px 0;">
+    Editing: <span id="edit-banner-name"></span>
+    <button onclick="App.cancelEdit()">✕</button>
+  </div>
+
   <div class="form-card">
     <div class="form-row">
       <label class="form-label" for="timer-name">Name</label>
@@ -81,7 +86,7 @@
       </div>
     </div>
 
-    <button class="btn-add" onclick="App.saveNewTimer()">
+    <button id="btn-save" class="btn-add" onclick="App.saveNewTimer()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       Save Timer
     </button>

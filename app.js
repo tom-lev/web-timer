@@ -94,7 +94,8 @@ const App = (() => {
   const RING_R = 54;
   const CIRC   = +(2 * Math.PI * RING_R).toFixed(2);
 
-  let timers = {};  // runtime: id → { id, name, color, sound, total, remaining, state }
+  let timers    = {};  // runtime: id → { id, name, color, sound, total, remaining, state }
+  let editingId = null;
 
   // ── Audio unlock ──────────────────────────────────────────────────────────
   let silentEl = null, audioUnlocked = false;
@@ -132,7 +133,30 @@ const App = (() => {
   }
   function writeSaved(arr) { localStorage.setItem('mt-saved', JSON.stringify(arr)); }
 
-  // ── Add timer ─────────────────────────────────────────────────────────────
+  // ── Edit mode ─────────────────────────────────────────────────────────────
+  function startEditing(id) {
+    const saved = loadSaved().find(s => s.id === id);
+    if (!saved) return;
+    editingId = id;
+    $('timer-name').value  = saved.name;
+    $('t-hours').value     = saved.hours;
+    $('t-minutes').value   = saved.minutes;
+    $('t-seconds').value   = saved.seconds;
+    $('t-sound').value     = saved.sound;
+    $('btn-save').textContent = '✓ Update Timer';
+    $('edit-banner').style.display  = 'flex';
+    $('edit-banner-name').textContent = saved.name;
+    switchPage('new');
+  }
+
+  function cancelEdit() {
+    editingId = null;
+    $('btn-save').textContent = 'Save Timer';
+    $('edit-banner').style.display = 'none';
+    $('timer-name').value = '';
+  }
+
+  // ── Add / Update timer ────────────────────────────────────────────────────
   function saveNewTimer() {
     const name    = $('timer-name').value.trim() || 'Timer';
     const hours   = parseInt($('t-hours').value)   || 0;
@@ -141,6 +165,32 @@ const App = (() => {
     const sound   = $('t-sound').value;
     const total   = hmsToMs(hours, minutes, seconds);
     if (total <= 0) { showToast('Set a duration > 0', 'error'); return; }
+
+    if (editingId) {
+      // Update existing
+      const saved = loadSaved();
+      const idx   = saved.findIndex(s => s.id === editingId);
+      if (idx !== -1) {
+        saved[idx] = { ...saved[idx], name, hours, minutes, seconds, sound };
+        writeSaved(saved);
+      }
+      const t = timers[editingId];
+      if (t) {
+        t.name  = name;
+        t.sound = sound;
+        if (t.state === 'idle') { t.total = total; t.remaining = total; }
+        const card = document.querySelector(`.timer-circle[data-id="${editingId}"]`);
+        if (card) {
+          card.querySelector('.circle-name').textContent = name;
+          if (t.state === 'idle') renderCircleFace(editingId);
+        }
+      }
+      showToast(`"${name}" updated`);
+      cancelEdit();
+      renderSavedList();
+      switchPage('home');
+      return;
+    }
 
     const id    = Date.now();
     const color = nextColor();
@@ -156,6 +206,44 @@ const App = (() => {
     switchPage('home');
   }
 
+  // ── Action sheet (from ⋮ button) ─────────────────────────────────────────
+  function showOptions(id, e) {
+    e.stopPropagation();
+    const t = timers[id];
+    if (!t) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'sheet-overlay';
+
+    const sheet = document.createElement('div');
+    sheet.className = 'action-sheet';
+    sheet.innerHTML = `
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">${t.name}</div>
+      <button class="sheet-btn" id="_edit">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        Edit
+      </button>
+      <button class="sheet-btn sheet-btn-danger" id="_delete">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        Delete
+      </button>
+      <button class="sheet-btn sheet-btn-cancel" id="_cancel">Cancel</button>
+    `;
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('open'));
+
+    const close = () => {
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 250);
+    };
+    overlay.addEventListener('click', ev => { if (ev.target === overlay) close(); });
+    sheet.querySelector('#_edit').onclick   = () => { close(); startEditing(id); };
+    sheet.querySelector('#_delete').onclick = () => { close(); deleteTimer(id); };
+    sheet.querySelector('#_cancel').onclick = close;
+  }
+
   // ── Delete timer ──────────────────────────────────────────────────────────
   function deleteTimer(id) {
     worker.postMessage({ cmd: 'stop', id });
@@ -168,6 +256,44 @@ const App = (() => {
     msRefresh();
   }
 
+  // ── Notifications ─────────────────────────────────────────────────────────
+  async function requestNotificationPermission() {
+    if (!('Notification' in window) || Notification.permission !== 'default') return;
+    await Notification.requestPermission();
+  }
+
+  async function showTimerNotification(id, name) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(`⏱ ${name} finished!`, {
+        body: 'Tap "Stop" to dismiss the alarm',
+        icon: './icon-192.png',
+        badge: './icon-192.png',
+        tag: `timer-done-${id}`,
+        requireInteraction: true,
+        actions: [{ action: 'stop', title: '🔇 Stop Alarm' }],
+        data: { id },
+      });
+    } catch (e) { /* notifications not supported */ }
+  }
+
+  function dismissAlarm(id) {
+    const t = timers[id];
+    if (!t || t.state !== 'done') return;
+    SoundEngine.stopLoop(id);
+    worker.postMessage({ cmd: 'stop', id });
+    t.remaining = t.total;
+    t.state = 'idle';
+    renderCircleFace(id);
+    msRefresh();
+    // Close any open notification for this timer
+    navigator.serviceWorker?.ready.then(reg =>
+      reg.getNotifications({ tag: `timer-done-${id}` })
+        .then(ns => ns.forEach(n => n.close()))
+    );
+  }
+
   // ── Toggle (tap on circle) ────────────────────────────────────────────────
   function toggleTimer(id) {
     const t = timers[id];
@@ -175,17 +301,12 @@ const App = (() => {
     unlockAudio();
 
     if (t.state === 'done') {
-      // Stop alarm + reset to idle
-      SoundEngine.stopLoop(id);
-      worker.postMessage({ cmd: 'stop', id });
-      t.remaining = t.total;
-      t.state = 'idle';
-      renderCircleFace(id);
-      msRefresh();
+      dismissAlarm(id);
     } else if (t.state === 'running') {
       worker.postMessage({ cmd: 'pause', id });
     } else {
       // idle or paused → start / resume
+      requestNotificationPermission();
       if (t.state === 'idle') t.remaining = t.total;
       t.state = 'running';
       worker.postMessage({ cmd: 'start', id, remaining: t.remaining });
@@ -253,6 +374,7 @@ const App = (() => {
       SoundEngine.startLoop(data.id, t.sound);
       msRefresh();
       showToast(`"${t.name}" finished!`, 'success');
+      showTimerNotification(data.id, t.name);
     } else if (data.type === 'paused') {
       t.remaining = data.remaining;
       t.state = 'paused';
@@ -272,6 +394,7 @@ const App = (() => {
     card.className  = 'timer-circle';
     card.dataset.id = id;
     card.innerHTML  = `
+      <button class="circle-options" onclick="App.showOptions(${id}, event)">⋮</button>
       <div class="circle-wrap">
         <svg class="circle-svg" width="130" height="130" viewBox="0 0 130 130">
           <circle class="ring-bg"   cx="65" cy="65" r="${RING_R}" stroke-width="9"/>
@@ -382,8 +505,15 @@ const App = (() => {
   }
 
   init();
-  return { saveNewTimer, deleteTimer, toggleTimer, switchPage };
+  return { saveNewTimer, deleteTimer, toggleTimer, switchPage, showOptions, cancelEdit, dismissAlarm };
 })();
+
+// ── SW message listener (for notification Stop action) ─────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data?.type === 'STOP_ALARM') App.dismissAlarm(event.data.id);
+  });
+}
 
 // ── Service Worker ─────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
