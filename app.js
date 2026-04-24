@@ -46,100 +46,92 @@ function playTick() {
   } catch (_) {}
 }
 
-// ── Drum Picker ────────────────────────────────────────────────────────────
+// ── Drum Picker (3D cylinder) ──────────────────────────────────────────────
 class DrumPicker {
   constructor(el, values, initial = 0) {
     this.el       = el;
     this.values   = values;
     this.ITEM_H   = 44;
-    this.VIEW_H   = 220;
-    this.selected = Math.max(0, Math.min(initial, values.length - 1));
-    this.offset   = this._offsetFor(this.selected);
-    this.dragging = false;
-    this.startY   = 0;
-    this.startOff = 0;
+    this.RADIUS   = 130;
+    this.STEP_DEG = (this.ITEM_H / this.RADIUS) * (180 / Math.PI); // ≈ 19.4°
+    this.scrollY  = Math.max(0, Math.min(initial, values.length - 1)) * this.ITEM_H;
+    this.selected = Math.round(this.scrollY / this.ITEM_H);
+    this.dragging    = false;
+    this.startY      = 0;
+    this.startScroll = 0;
     this.lastY    = 0;
     this.velocity = 0;
     this.lastSel  = this.selected;
     this._build();
     this._bind();
-    this._render(false);
-  }
-
-  _offsetFor(idx) {
-    return this.VIEW_H / 2 - this.ITEM_H / 2 - idx * this.ITEM_H;
-  }
-
-  _idxFor(offset) {
-    return Math.round((this.VIEW_H / 2 - this.ITEM_H / 2 - offset) / this.ITEM_H);
-  }
-
-  _clamp(offset) {
-    return Math.max(this._offsetFor(this.values.length - 1),
-                    Math.min(this._offsetFor(0), offset));
+    this._render();
   }
 
   _build() {
-    this.list = document.createElement('div');
-    this.list.className = 'drum-list';
-    this.values.forEach(v => {
+    this.items = this.values.map(v => {
       const item = document.createElement('div');
       item.className = 'drum-item';
       item.textContent = String(v).padStart(2, '0');
-      this.list.appendChild(item);
+      this.el.appendChild(item);
+      return item;
     });
-    this.el.appendChild(this.list);
-    this._highlight();
   }
 
-  _render(animate = true) {
-    this.list.style.transition = animate
-      ? 'transform .2s cubic-bezier(.25,.46,.45,.94)' : 'none';
-    this.list.style.transform = `translateY(${this.offset}px)`;
-    const idx = Math.max(0, Math.min(this.values.length - 1, this._idxFor(this.offset)));
-    if (idx !== this.selected) {
-      this.selected = idx;
-      this._highlight();
-      if (idx !== this.lastSel) { playTick(); this.lastSel = idx; }
+  _clampScroll(y) {
+    return Math.max(0, Math.min((this.values.length - 1) * this.ITEM_H, y));
+  }
+
+  _render() {
+    const selF   = this.scrollY / this.ITEM_H;
+    const newSel = Math.max(0, Math.min(this.values.length - 1, Math.round(selF)));
+    if (newSel !== this.lastSel) { playTick(); this.lastSel = newSel; }
+    this.selected = newSel;
+
+    const STEP_RAD = this.ITEM_H / this.RADIUS;
+    for (let i = 0; i < this.items.length; i++) {
+      const dist     = selF - i;
+      const angleDeg = dist * this.STEP_DEG;
+      const cos      = Math.cos(dist * STEP_RAD);
+
+      if (Math.abs(angleDeg) >= 88) {
+        this.items[i].style.opacity = '0';
+        continue;
+      }
+
+      this.items[i].style.opacity   = String(Math.max(0, cos * cos * cos).toFixed(3));
+      this.items[i].style.transform = `rotateX(${angleDeg.toFixed(2)}deg)`;
+      this.items[i].classList.toggle('selected', i === newSel);
     }
   }
 
-  _highlight() {
-    Array.from(this.list.children).forEach((item, i) => {
-      const dist = Math.abs(i - this.selected);
-      item.classList.toggle('selected', dist === 0);
-      item.style.opacity   = String(Math.max(0.18, 1 - dist * 0.28));
-      item.style.transform = `scale(${Math.max(0.72, 1 - dist * 0.1)})`;
-    });
-  }
-
   _snap() {
-    this.offset = this._clamp(this._offsetFor(this.selected));
-    this._render(true);
+    this.scrollY = this._clampScroll(Math.round(this.scrollY / this.ITEM_H) * this.ITEM_H);
+    this.el.classList.add('snapping');
+    this._render();
+    setTimeout(() => this.el.classList.remove('snapping'), 300);
   }
 
   _bind() {
     const onStart = y => {
-      this.dragging = true;
-      this.startY   = y;
-      this.startOff = this.offset;
-      this.lastY    = y;
-      this.velocity = 0;
-      this.list.style.transition = 'none';
+      this.dragging    = true;
+      this.startY      = y;
+      this.startScroll = this.scrollY;
+      this.lastY       = y;
+      this.velocity    = 0;
     };
     const onMove = y => {
       if (!this.dragging) return;
       this.velocity = y - this.lastY;
       this.lastY    = y;
-      this.offset   = this._clamp(this.startOff + (y - this.startY));
-      this._render(false);
+      this.scrollY  = this._clampScroll(this.startScroll + (y - this.startY));
+      this._render();
     };
     const onEnd = () => {
       if (!this.dragging) return;
       this.dragging = false;
-      if (Math.abs(this.velocity) > 2) {
-        this.offset = this._clamp(this.offset + this.velocity * 5);
-        this._render(false);
+      if (Math.abs(this.velocity) > 3) {
+        this.scrollY = this._clampScroll(this.scrollY + this.velocity * 5);
+        this._render();
         setTimeout(() => this._snap(), 60);
       } else {
         this._snap();
@@ -149,13 +141,13 @@ class DrumPicker {
     this.el.addEventListener('touchstart', e => onStart(e.touches[0].clientY), { passive: true });
     this.el.addEventListener('touchmove',  e => { e.preventDefault(); onMove(e.touches[0].clientY); }, { passive: false });
     this.el.addEventListener('touchend',   () => onEnd());
-    this.el.addEventListener('mousedown',  e => onStart(e.clientY));
+    this.el.addEventListener('mousedown',  e => { e.preventDefault(); onStart(e.clientY); });
     window.addEventListener('mousemove',   e => { if (this.dragging) onMove(e.clientY); });
     window.addEventListener('mouseup',     () => onEnd());
     this.el.addEventListener('wheel', e => {
       e.preventDefault();
-      const next = Math.max(0, Math.min(this.values.length - 1, this.selected + Math.sign(e.deltaY)));
-      if (next !== this.selected) { this.selected = next; this.offset = this._offsetFor(next); this._render(true); this._highlight(); playTick(); this.lastSel = next; }
+      this.scrollY = this._clampScroll(this.scrollY + Math.sign(e.deltaY) * this.ITEM_H);
+      this._snap();
     }, { passive: false });
   }
 
@@ -166,9 +158,8 @@ class DrumPicker {
     if (idx < 0) return;
     this.selected = idx;
     this.lastSel  = idx;
-    this.offset   = this._offsetFor(idx);
-    this._render(false);
-    this._highlight();
+    this.scrollY  = idx * this.ITEM_H;
+    this._render();
   }
 }
 
@@ -577,7 +568,7 @@ const App = (() => {
 
     if (display) {
       if (t.state === 'done' && t.overtime > 0) {
-        display.textContent = '+' + formatTime(t.overtime);
+        display.textContent = '-' + formatTime(t.overtime);
       } else {
         display.textContent = formatTime(t.remaining);
       }
@@ -658,7 +649,7 @@ const App = (() => {
     const mins = Array.from({ length: 60 }, (_, i) => i);
     const secs = Array.from({ length: 60 }, (_, i) => i);
     drums.h = new DrumPicker($('drum-h'), hrs,  0);
-    drums.m = new DrumPicker($('drum-m'), mins, 5);
+    drums.m = new DrumPicker($('drum-m'), mins, 0);
     drums.s = new DrumPicker($('drum-s'), secs, 0);
 
     renderSavedList();

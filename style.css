@@ -546,25 +546,25 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  background: #0b0d17;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.07);
   height: 220px;
   overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.05),
+    inset 0 -1px 0 rgba(0,0,0,.5),
+    0 16px 48px rgba(0,0,0,.6);
 }
 
 .drum-highlight-bar {
   position: absolute;
-  left: 8px;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
+  left: 0; right: 0;
+  top: 50%; transform: translateY(-50%);
   height: 44px;
-  background: rgba(108,99,255,.14);
-  border: 1.5px solid rgba(108,99,255,.38);
-  border-radius: 10px;
+  background: rgba(255,255,255,.058);
+  border-top: 1px solid rgba(255,255,255,.11);
+  border-bottom: 1px solid rgba(255,255,255,.11);
   pointer-events: none;
   z-index: 2;
 }
@@ -572,55 +572,66 @@ body {
 .drum-fade {
   position: absolute;
   left: 0; right: 0;
-  height: 72px;
+  height: 88px;
   z-index: 3;
   pointer-events: none;
 }
-.drum-fade-top { top: 0;    background: linear-gradient(to bottom, var(--surface2) 15%, transparent); }
-.drum-fade-bot { bottom: 0; background: linear-gradient(to top,   var(--surface2) 15%, transparent); }
+.drum-fade-top { top: 0;    background: linear-gradient(to bottom, #0b0d17 22%, rgba(11,13,23,0)); }
+.drum-fade-bot { bottom: 0; background: linear-gradient(to top,   #0b0d17 22%, rgba(11,13,23,0)); }
 
 .drum-col {
   flex: 1;
-  height: 100%;
+  align-self: stretch;
   overflow: hidden;
+  perspective: 320px;
+  perspective-origin: 50% 50%;
+  position: relative;
   cursor: ns-resize;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
-  position: relative;
   z-index: 1;
 }
 
-.drum-list {
-  display: flex;
-  flex-direction: column;
-  will-change: transform;
+.drum-col.snapping .drum-item {
+  transition: transform .28s cubic-bezier(.25,.46,.45,.94), opacity .18s ease;
 }
 
 .drum-item {
+  position: absolute;
+  top: 50%; left: 0; right: 0;
+  height: 44px;
+  margin-top: -22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 44px;
-  font-size: 1.45rem;
-  font-weight: 700;
+  transform-origin: center center -130px;
+  font-size: 2rem;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  flex-shrink: 0;
-  transition: color .1s;
+  letter-spacing: -0.04em;
+  color: rgba(226,232,240,.65);
+  pointer-events: none;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
-.drum-item.selected { color: var(--text); }
+.drum-item.selected {
+  color: #fff;
+  text-shadow: 0 0 22px rgba(108,99,255,.6);
+}
 
 .drum-sep {
-  font-size: .75rem;
-  font-weight: 700;
-  color: var(--muted);
-  letter-spacing: .05em;
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: rgba(255,255,255,.22);
+  letter-spacing: 0;
   z-index: 4;
   pointer-events: none;
   flex-shrink: 0;
   padding: 0 2px;
+  align-self: center;
 }
 
 /* ── Edit mode banner ── */
