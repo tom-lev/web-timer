@@ -1,8 +1,10 @@
 {
+  "id": "/index.html",
   "name": "MultiTimer — Precision Timers",
   "short_name": "MultiTimer",
   "description": "Background-safe precision timers with notifications",
   "start_url": "/index.html",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0f1117",

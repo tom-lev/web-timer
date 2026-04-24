@@ -559,129 +559,185 @@ const App = (() => {
   return { addTimer, startTimer, pauseTimer, resetTimer, stopAlarm, removeTimer, savePreset, deletePreset };
 })();
 
+// ── Silent audio (must be created & played inside a user gesture) ─────────
+// We create ONE shared Audio element. It's played the first time the user
+// taps "Start" on any timer (that tap IS the user gesture Chrome requires).
+// Without audio playing, Chrome will not show/update the Media Session
+// notification in the Android notification shade.
+
+const SilentAudio = (() => {
+  let el = null;
+  let unlocked = false;
+
+  // 200ms of real silence encoded as a valid WAV data-URI.
+  // This is the minimum that reliably keeps Chrome's media session alive.
+  const WAV_SILENCE =
+    'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+
+  function ensure() {
+    if (el) return;
+    el = new Audio(WAV_SILENCE);
+    el.loop   = true;
+    el.volume = 0.001; // audible to no one, but not muted (Chrome skips muted)
+  }
+
+  // Call this DIRECTLY inside a click/tap handler (user gesture context).
+  function unlock() {
+    ensure();
+    if (unlocked) return;
+    // play() inside a user gesture always succeeds
+    el.play().then(() => { unlocked = true; }).catch(() => {});
+  }
+
+  function play() {
+    ensure();
+    if (el.paused) el.play().catch(() => {});
+  }
+
+  function pause() {
+    if (el && !el.paused) el.pause();
+  }
+
+  return { unlock, play, pause };
+})();
+
 // ── Media Session API ──────────────────────────────────────────────────────
-// Shows a sticky notification in the Android notification shade with
-// the timer name, remaining time, and Play/Pause controls.
+// Displays: Title = remaining time ("04:30 ▶"), Artist = timer name.
+// Controls: Play / Pause buttons in the Android notification shade.
 
-const MediaSessionManager = (() => {
-  if (!('mediaSession' in navigator)) return { update() {}, clear() {}, setupControls() {} };
+const MediaSession = (() => {
+  const supported = 'mediaSession' in navigator;
 
-  let silentAudioEl = null;
-  let metaInterval  = null;
-
-  // A silent audio element is required: browsers only show the media
-  // notification while audio is "playing".  We use a 1-second looping
-  // data-URI of near-silent audio so nothing is actually audible.
-  function ensureSilentAudio() {
-    if (silentAudioEl) return;
-    // Minimal valid MP3: ~80 bytes of silence
-    const silentMp3 = 'data:audio/mpeg;base64,' +
-      '/+MYxAANCAYSAABRBlAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
-      'AAAAAAAAAAAAAAAAA==';
-    silentAudioEl = new window.Audio(silentMp3);
-    silentAudioEl.loop   = true;
-    silentAudioEl.volume = 0.001; // near-zero but not 0 (Chrome may optimise away)
-  }
-
-  function playSilent() {
-    ensureSilentAudio();
-    if (silentAudioEl.paused) {
-      silentAudioEl.play().catch(() => {
-        // Autoplay blocked — user hasn't interacted yet; will retry on next action
-      });
-    }
-  }
-
-  function stopSilent() {
-    if (silentAudioEl && !silentAudioEl.paused) {
-      silentAudioEl.pause();
-      silentAudioEl.currentTime = 0;
-    }
-  }
-
-  // Set MediaSession metadata (shown in notification)
-  function setMeta(title, artist) {
+  function setMeta(timeStr, name, state) {
+    if (!supported) return;
+    const icon = state === 'running' ? ' ▶' : state === 'paused' ? ' ⏸' : ' ✅';
     navigator.mediaSession.metadata = new MediaMetadata({
-      title,   // remaining time  e.g. "04:30"
-      artist,  // timer name       e.g. "Pomodoro"
-      album:   'MultiTimer',
+      title:  timeStr + icon,
+      artist: name,
+      album:  'MultiTimer',
     });
-  }
-
-  // Get the "most relevant" timer to show in the notification:
-  // running > paused > done (ringing).  Returns null if nothing active.
-  function getPrimaryTimer(timers) {
-    if (!timers) return null;
-    const all = Object.values(timers);
-    return all.find(t => t.state === 'running')
-        || all.find(t => t.state === 'paused')
-        || all.find(t => t.state === 'done')
-        || null;
-  }
-
-  // Called every second from the tick handler — keeps the notification live
-  function update(timers) {
-    const t = getPrimaryTimer(timers);
-    if (!t) { clear(); return; }
-
-    playSilent();
-
-    const timeStr = formatTime(t.remaining);
-    const stateTag = t.state === 'paused' ? ' ⏸' : t.state === 'done' ? ' ✅' : '';
-    setMeta(timeStr + stateTag, t.name);
-    navigator.mediaSession.playbackState = t.state === 'running' ? 'playing' : 'paused';
+    navigator.mediaSession.playbackState = state === 'running' ? 'playing' : 'paused';
   }
 
   function clear() {
-    stopSilent();
-    navigator.mediaSession.metadata = null;
+    if (!supported) return;
+    navigator.mediaSession.metadata      = null;
     navigator.mediaSession.playbackState = 'none';
+    SilentAudio.pause();
   }
 
-  // Hook notification Play/Pause buttons to the active timer
-  function setupControls(getTimers, startFn, pauseFn) {
-    if (!('mediaSession' in navigator)) return;
-
-    navigator.mediaSession.setActionHandler('play', () => {
-      const all = getTimers();
-      const t   = Object.entries(all).find(([, v]) => v.state === 'paused');
-      if (t) startFn(Number(t[0]));
-    });
-
-    navigator.mediaSession.setActionHandler('pause', () => {
-      const all = getTimers();
-      const t   = Object.entries(all).find(([, v]) => v.state === 'running');
-      if (t) pauseFn(Number(t[0]));
-    });
-
-    // 'stop' maps to stopping the alarm on a done timer
-    navigator.mediaSession.setActionHandler('stop', () => {
-      const all = getTimers();
-      Object.entries(all).forEach(([id, v]) => {
-        if (v.state === 'done') App.stopAlarm(Number(id));
+  function setupActions(getRunning, getPaused) {
+    if (!supported) return;
+    navigator.mediaSession.setActionHandler('play',  () => { const id = getPaused();  if (id != null) App.startTimer(id); });
+    navigator.mediaSession.setActionHandler('pause', () => { const id = getRunning(); if (id != null) App.pauseTimer(id); });
+    navigator.mediaSession.setActionHandler('stop',  () => {
+      // stop = dismiss — clear all ringing alarms
+      Object.keys(mirror).forEach(id => {
+        if (mirror[id]?.state === 'done') App.stopAlarm(Number(id));
       });
     });
   }
 
-  return { update, clear, setupControls };
+  return { setMeta, clear, setupActions };
 })();
 
-// Patch App to call MediaSession on every tick / state change.
-// We do this after App is defined so we don't touch the original code.
-(function patchAppForMediaSession() {
-  // Intercept worker messages to update MediaSession each tick
-  const _orig = worker.onmessage;
-  worker.onmessage = function(event) {
-    _orig && _orig.call(this, event); // run original handler first
-    // After state is updated, refresh the notification
-    // Small setTimeout so App's internal timers object is already updated
-    setTimeout(() => MediaSessionManager.update(App._timers()), 0);
+// ── Timer state mirror (for Media Session) ────────────────────────────────
+// Because App is a revealing module we can't access its internal `timers`
+// map directly.  We maintain a lightweight parallel mirror via:
+//   • MutationObserver to catch add/remove of timer cards
+//   • Patched App methods to catch state changes
+//   • Patched worker.onmessage to catch tick / done / paused
+
+const mirror = {}; // { [id]: { name, state, remaining } }
+
+function mirrorRefresh() {
+  // Pick the most "interesting" timer to show: running > paused > done
+  const all  = Object.values(mirror);
+  const best = all.find(t => t.state === 'running')
+            || all.find(t => t.state === 'paused')
+            || all.find(t => t.state === 'done');
+
+  if (!best) { MediaSession.clear(); return; }
+
+  SilentAudio.play(); // keep audio alive (no-op if already playing)
+  MediaSession.setMeta(formatTime(best.remaining), best.name, best.state);
+}
+
+// Watch timer cards being added / removed from the DOM
+new MutationObserver(muts => {
+  muts.forEach(m => {
+    m.addedNodes.forEach(node => {
+      if (node.nodeType !== 1 || !node.dataset?.id) return;
+      const id     = Number(node.dataset.id);
+      const nameEl = node.querySelector('.timer-name');
+      mirror[id]   = { name: nameEl?.textContent || `Timer ${id}`, state: 'idle', remaining: 0 };
+    });
+    m.removedNodes.forEach(node => {
+      if (node.nodeType !== 1 || !node.dataset?.id) return;
+      delete mirror[Number(node.dataset.id)];
+    });
+  });
+}).observe(document.getElementById('timers-grid'), { childList: true });
+
+// Intercept worker messages AFTER App's handler (App sets its own state first)
+const _appWorkerMsg = worker.onmessage;
+worker.onmessage = function({ data }) {
+  _appWorkerMsg?.call(this, { data }); // App processes first
+  const m = mirror[data.id];
+  if (!m) return;
+  if (data.type === 'tick')   { m.remaining = data.remaining; }
+  if (data.type === 'paused') { m.state = 'paused'; m.remaining = data.remaining; }
+  if (data.type === 'done')   { m.state = 'done'; m.remaining = 0; }
+  mirrorRefresh();
+};
+
+// Patch App public methods to keep mirror in sync
+;(function patchApp() {
+  const orig = {
+    start:  App.startTimer.bind(App),
+    pause:  App.pauseTimer.bind(App),
+    reset:  App.resetTimer.bind(App),
+    stop:   App.stopAlarm.bind(App),
+    remove: App.removeTimer.bind(App),
   };
 
-  // Expose a getter so MediaSession can read timer states
-  // (We add App._timers by augmenting the return value below)
+  App.startTimer = id => {
+    // ★ This is a user gesture — unlock silent audio NOW
+    SilentAudio.unlock();
+    orig.start(id);
+    if (mirror[id]) mirror[id].state = 'running';
+    mirrorRefresh();
+  };
+
+  App.pauseTimer = id => {
+    orig.pause(id);
+    // mirror state confirmed via worker 'paused' message above
+  };
+
+  App.resetTimer = id => {
+    orig.reset(id);
+    if (mirror[id]) { mirror[id].state = 'idle'; mirror[id].remaining = 0; }
+    mirrorRefresh();
+  };
+
+  App.stopAlarm = id => {
+    orig.stop(id);
+    if (mirror[id]) { mirror[id].state = 'idle'; mirror[id].remaining = 0; }
+    mirrorRefresh();
+  };
+
+  App.removeTimer = id => {
+    orig.remove(id);
+    delete mirror[id];
+    mirrorRefresh();
+  };
 })();
+
+// Wire Media Session notification buttons
+MediaSession.setupActions(
+  () => { const e = Object.entries(mirror).find(([,v]) => v.state === 'running'); return e ? Number(e[0]) : null; },
+  () => { const e = Object.entries(mirror).find(([,v]) => v.state === 'paused');  return e ? Number(e[0]) : null; }
+);
 
 // ── Service Worker Registration ────────────────────────────────────────────
 
@@ -690,15 +746,11 @@ if ('serviceWorker' in navigator) {
     try {
       const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
       console.log('[SW] Registered:', reg.scope);
-
-      // If a new SW is waiting, tell it to take over immediately
       if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
       reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        newWorker?.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            newWorker.postMessage({ type: 'SKIP_WAITING' });
-          }
+        reg.installing?.addEventListener('statechange', function() {
+          if (this.state === 'installed' && navigator.serviceWorker.controller)
+            this.postMessage({ type: 'SKIP_WAITING' });
         });
       });
     } catch (err) {
@@ -706,139 +758,52 @@ if ('serviceWorker' in navigator) {
     }
   });
 
-  // Keepalive: ping the SW every 20s while any timer is running
-  // so the browser doesn't suspend it.
+  // Keepalive ping every 20 s so Android doesn't kill the SW
   setInterval(() => {
-    if (navigator.serviceWorker.controller) {
-      const ch = new MessageChannel();
-      navigator.serviceWorker.controller.postMessage({ type: 'KEEPALIVE' }, [ch.port2]);
-    }
+    if (!navigator.serviceWorker.controller) return;
+    const ch = new MessageChannel();
+    navigator.serviceWorker.controller.postMessage({ type: 'KEEPALIVE' }, [ch.port2]);
   }, 20_000);
 }
 
 // ── PWA Install Prompt ─────────────────────────────────────────────────────
+// Chrome fires `beforeinstallprompt` only when ALL criteria are met:
+//   ✔ HTTPS  ✔ manifest with id/name/icons/start_url  ✔ SW registered
+//   ✔ not already installed
+// We show a button in the header and also a subtle toast on first visit.
 
 (function initInstallPrompt() {
   let deferredPrompt = null;
   const btn = document.getElementById('pwa-install-btn');
 
   window.addEventListener('beforeinstallprompt', e => {
-    e.preventDefault();
+    e.preventDefault();        // stop mini-infobar
     deferredPrompt = e;
-    if (btn) btn.style.display = '';
+    if (btn) {
+      btn.style.display = 'inline-flex';
+      // First-time nudge
+      if (!localStorage.getItem('pwa-nudge-shown')) {
+        showToast('📲 Tip: tap "Install App" to add to home screen');
+        localStorage.setItem('pwa-nudge-shown', '1');
+      }
+    }
   });
 
   btn?.addEventListener('click', async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
+    deferredPrompt = null;
     if (outcome === 'accepted') {
-      showToast('App installed! 🎉');
+      showToast('MultiTimer installed! 🎉');
       btn.style.display = 'none';
     }
-    deferredPrompt = null;
   });
 
   window.addEventListener('appinstalled', () => {
+    deferredPrompt = null;
     if (btn) btn.style.display = 'none';
-    showToast('MultiTimer installed on home screen 🎉');
   });
-})();
-
-// ── Wire MediaSession controls after App is ready ─────────────────────────
-// We need a way to expose App's internal timers map.
-// Since App is a revealing module, we add a small public getter by re-opening.
-// The cleanest approach without touching App: use a shared WeakRef via closure.
-// Instead we just wrap App's returned methods and track state externally.
-
-(function wireMediaSession() {
-  // Re-expose internal timer state via a proxy approach:
-  // Patch the methods that change state to also refresh MediaSession.
-  const _start  = App.startTimer.bind(App);
-  const _pause  = App.pauseTimer.bind(App);
-  const _reset  = App.resetTimer.bind(App);
-  const _stop   = App.stopAlarm.bind(App);
-  const _remove = App.removeTimer.bind(App);
-
-  // Track our own lightweight state mirror for MediaSession
-  const mirror = {}; // id -> { name, state, remaining }
-
-  function refresh() {
-    MediaSessionManager.update(mirror);
-    if (!Object.keys(mirror).length) MediaSessionManager.clear();
-  }
-
-  // Intercept worker messages directly for mirror updates
-  const origOnMessage = worker.onmessage;
-  worker.onmessage = function({ data }) {
-    origOnMessage?.call(this, { data });
-    if (!mirror[data.id]) return;
-    if (data.type === 'tick')   { mirror[data.id].remaining = data.remaining; }
-    if (data.type === 'paused') { mirror[data.id].state = 'paused'; mirror[data.id].remaining = data.remaining; }
-    if (data.type === 'done')   { mirror[data.id].state = 'done'; mirror[data.id].remaining = 0; }
-    refresh();
-  };
-
-  // Patch App methods to update mirror
-  App.startTimer = id => {
-    _start(id);
-    if (mirror[id]) mirror[id].state = 'running';
-    refresh();
-  };
-  App.pauseTimer = id => {
-    _pause(id);
-    // state will be confirmed via worker 'paused' message
-  };
-  App.resetTimer = id => {
-    _reset(id);
-    delete mirror[id];
-    refresh();
-  };
-  App.stopAlarm = id => {
-    _stop(id);
-    delete mirror[id];
-    refresh();
-  };
-  App.removeTimer = id => {
-    _remove(id);
-    delete mirror[id];
-    refresh();
-  };
-
-  // Patch addTimer to register in mirror
-  const _add = App.addTimer.bind(App);
-  App.addTimer = (preset = null) => {
-    _add(preset);
-    // We don't have the id here; listen for DOM mutations instead.
-    // Simpler: scan the grid after a tick.
-  };
-
-  // Setup notification button controls
-  MediaSessionManager.setupControls(
-    () => mirror,
-    id => App.startTimer(id),
-    id => App.pauseTimer(id)
-  );
-
-  // Expose mirror population hook: called from renderTimer patch below.
-  // We need to know when a new timer card is created.
-  // Since App is a closure, we use a MutationObserver on the grid.
-  const grid = document.getElementById('timers-grid');
-  let nextId = 1; // mirrors App's uid — starts at 1
-  const obs = new MutationObserver(mutations => {
-    mutations.forEach(m => m.addedNodes.forEach(node => {
-      if (node.dataset?.id) {
-        const id = Number(node.dataset.id);
-        const nameEl = node.querySelector('.timer-name');
-        const name   = nameEl ? nameEl.textContent : `Timer ${id}`;
-        mirror[id] = { name, state: 'idle', remaining: 0 };
-      }
-    }));
-    mutations.forEach(m => m.removedNodes.forEach(node => {
-      if (node.dataset?.id) delete mirror[Number(node.dataset.id)];
-    }));
-  });
-  obs.observe(grid, { childList: true });
 })();
 </script>
 </body>
