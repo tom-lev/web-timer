@@ -18,7 +18,7 @@ function showToast(msg, type = 'success') {
   el.className = `toast ${type}`;
   el.textContent = msg;
   $('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3500);
+  setTimeout(() => el.remove(), 3200);
 }
 
 // ── Color palette ──────────────────────────────────────────────────────────
@@ -64,9 +64,7 @@ const SoundEngine = (() => {
     },
     beep() { [0, 0.22, 0.44].forEach(t => tone(880, t, 0.14, 'sine', 0.4)); },
     pulse() {
-      for (let i = 0; i < 5; i++) {
-        tone(1200 - i * 60, i * 0.12, 0.08, 'sawtooth', 0.3);
-      }
+      for (let i = 0; i < 5; i++) tone(1200 - i * 60, i * 0.12, 0.08, 'sawtooth', 0.3);
     },
   };
 
@@ -78,8 +76,7 @@ const SoundEngine = (() => {
     stopLoop(timerId);
     const fn = sounds[soundKey] || sounds.chime;
     fn();
-    const period = cycleDuration[soundKey] || 2000;
-    loops[timerId] = setInterval(fn, period);
+    loops[timerId] = setInterval(fn, cycleDuration[soundKey] || 2000);
   }
   function stopLoop(timerId) {
     if (loops[timerId] != null) { clearInterval(loops[timerId]); delete loops[timerId]; }
@@ -89,20 +86,18 @@ const SoundEngine = (() => {
   return { preview, startLoop, stopLoop, isLooping };
 })();
 
-const SOUND_LABEL = { chime:'🎵 Chime', bell:'🔔 Bell', alarm:'🚨 Alarm', beep:'📳 Beep', pulse:'💥 Pulse' };
-
 // ── Web Worker ────────────────────────────────────────────────────────────
 const worker = new Worker('./timer-worker.js');
 
 // ── App ────────────────────────────────────────────────────────────────────
 const App = (() => {
-  const RING_R = 52;
-  const CIRC   = 2 * Math.PI * RING_R;
-  let timers   = {};
-  let uid      = 1;
+  const RING_R = 54;
+  const CIRC   = +(2 * Math.PI * RING_R).toFixed(2);
 
-  let silentEl = null;
-  let audioUnlocked = false;
+  let timers = {};  // runtime: id → { id, name, color, sound, total, remaining, state }
+
+  // ── Audio unlock ──────────────────────────────────────────────────────────
+  let silentEl = null, audioUnlocked = false;
 
   function ensureSilentAudio() {
     if (silentEl) return;
@@ -111,25 +106,98 @@ const App = (() => {
     silentEl.loop   = true;
     silentEl.volume = 0.001;
   }
-
   function unlockAudio() {
     ensureSilentAudio();
     if (audioUnlocked) return;
     silentEl.play().then(() => { audioUnlocked = true; }).catch(() => {});
   }
-
   function playSilent() {
     ensureSilentAudio();
     if (silentEl.paused) silentEl.play().catch(() => {});
   }
-
   function stopSilent() {
     if (silentEl && !silentEl.paused) { silentEl.pause(); silentEl.currentTime = 0; }
   }
 
+  // ── Navigation ────────────────────────────────────────────────────────────
+  function switchPage(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    $(`page-${page}`).classList.add('active');
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === `tab-${page}`));
+  }
+
+  // ── Persistence ──────────────────────────────────────────────────────────
+  function loadSaved() {
+    try { return JSON.parse(localStorage.getItem('mt-saved')) || []; } catch { return []; }
+  }
+  function writeSaved(arr) { localStorage.setItem('mt-saved', JSON.stringify(arr)); }
+
+  // ── Add timer ─────────────────────────────────────────────────────────────
+  function saveNewTimer() {
+    const name    = $('timer-name').value.trim() || 'Timer';
+    const hours   = parseInt($('t-hours').value)   || 0;
+    const minutes = parseInt($('t-minutes').value) || 0;
+    const seconds = parseInt($('t-seconds').value) || 0;
+    const sound   = $('t-sound').value;
+    const total   = hmsToMs(hours, minutes, seconds);
+    if (total <= 0) { showToast('Set a duration > 0', 'error'); return; }
+
+    const id    = Date.now();
+    const color = nextColor();
+    const saved = loadSaved();
+    saved.push({ id, name, hours, minutes, seconds, sound, color });
+    writeSaved(saved);
+
+    timers[id] = { id, name, color, sound, total, remaining: total, state: 'idle' };
+    renderCircle(id);
+    renderSavedList();
+    showToast(`"${name}" saved`);
+    $('timer-name').value = '';
+    switchPage('home');
+  }
+
+  // ── Delete timer ──────────────────────────────────────────────────────────
+  function deleteTimer(id) {
+    worker.postMessage({ cmd: 'stop', id });
+    SoundEngine.stopLoop(id);
+    delete timers[id];
+    document.querySelector(`.timer-circle[data-id="${id}"]`)?.remove();
+    writeSaved(loadSaved().filter(t => t.id !== id));
+    renderSavedList();
+    checkEmpty();
+    msRefresh();
+  }
+
+  // ── Toggle (tap on circle) ────────────────────────────────────────────────
+  function toggleTimer(id) {
+    const t = timers[id];
+    if (!t) return;
+    unlockAudio();
+
+    if (t.state === 'done') {
+      // Stop alarm + reset to idle
+      SoundEngine.stopLoop(id);
+      worker.postMessage({ cmd: 'stop', id });
+      t.remaining = t.total;
+      t.state = 'idle';
+      renderCircleFace(id);
+      msRefresh();
+    } else if (t.state === 'running') {
+      worker.postMessage({ cmd: 'pause', id });
+    } else {
+      // idle or paused → start / resume
+      if (t.state === 'idle') t.remaining = t.total;
+      t.state = 'running';
+      worker.postMessage({ cmd: 'start', id, remaining: t.remaining });
+      renderCircleFace(id);
+      msRefresh();
+    }
+  }
+
+  // ── Media session ─────────────────────────────────────────────────────────
   function msRefresh() {
     if (!('mediaSession' in navigator)) return;
-    const all = Object.values(timers);
+    const all     = Object.values(timers);
     const running = all.filter(t => t.state === 'running');
     const paused  = all.filter(t => t.state === 'paused');
     const done    = all.filter(t => t.state === 'done');
@@ -142,14 +210,10 @@ const App = (() => {
       return;
     }
 
-    if (running.length > 0) {
-      playSilent();
-    } else {
-      stopSilent();
-    }
+    if (running.length > 0) { playSilent(); } else { stopSilent(); }
 
     const visible = running.length > 0 ? running : (paused.length > 0 ? paused : done);
-    const title  = visible.map(t => `${t.name}  ${formatTime(t.remaining)}`).join('   ·   ');
+    const title   = visible.map(t => `${t.name}  ${formatTime(t.remaining)}`).join('   ·   ');
 
     navigator.mediaSession.metadata = new MediaMetadata({ title, artist: 'MultiTimer', album: '' });
     navigator.mediaSession.playbackState = running.length > 0 ? 'playing' : 'paused';
@@ -160,236 +224,173 @@ const App = (() => {
     navigator.mediaSession.setActionHandler('play', () => {
       Object.entries(timers)
         .filter(([, t]) => t.state === 'paused')
-        .forEach(([id]) => startTimer(Number(id)));
+        .forEach(([id]) => toggleTimer(Number(id)));
     });
     navigator.mediaSession.setActionHandler('pause', () => {
       Object.entries(timers)
         .filter(([, t]) => t.state === 'running')
-        .forEach(([id]) => pauseTimer(Number(id)));
+        .forEach(([id]) => toggleTimer(Number(id)));
     });
     navigator.mediaSession.setActionHandler('stop', () => {
       Object.entries(timers)
         .filter(([, t]) => t.state === 'done')
-        .forEach(([id]) => stopAlarm(Number(id)));
+        .forEach(([id]) => toggleTimer(Number(id)));
     });
   }
 
+  // ── Worker messages ───────────────────────────────────────────────────────
   worker.onmessage = ({ data }) => {
     const t = timers[data.id];
     if (!t) return;
     if (data.type === 'tick') {
       t.remaining = data.remaining;
-      renderTimerFace(data.id);
+      renderCircleFace(data.id);
       msRefresh();
     } else if (data.type === 'done') {
       t.remaining = 0;
       t.state = 'done';
-      renderTimerFace(data.id);
-      updateCardState(data.id);
+      renderCircleFace(data.id);
       SoundEngine.startLoop(data.id, t.sound);
       msRefresh();
       showToast(`"${t.name}" finished!`, 'success');
     } else if (data.type === 'paused') {
       t.remaining = data.remaining;
       t.state = 'paused';
-      renderTimerFace(data.id);
-      updateCardState(data.id);
+      renderCircleFace(data.id);
       msRefresh();
     }
   };
 
-  function addTimer(preset = null) {
-    const name = preset ? preset.name : ($('timer-name').value.trim() || 'Timer');
-    const hours = preset ? preset.hours : parseInt($('t-hours').value) || 0;
-    const minutes = preset ? preset.minutes : parseInt($('t-minutes').value) || 0;
-    const seconds = preset ? preset.seconds : parseInt($('t-seconds').value) || 0;
-    const sound = preset ? (preset.sound || 'chime') : $('t-sound').value;
-    const total = hmsToMs(hours, minutes, seconds);
-    if (total <= 0) { showToast('Set a duration > 0', 'error'); return; }
-    const id = uid++;
-    const color = nextColor();
-    timers[id] = { name, color, sound, total, remaining: total, state: 'idle', hours, minutes, seconds };
-    renderTimer(id);
-    if (!preset) $('timer-name').value = '';
-  }
+  // ── Rendering ─────────────────────────────────────────────────────────────
+  function renderCircle(id) {
+    const t    = $('empty-home');
+    const grid = $('circles-grid');
+    if (t) t.style.display = 'none';
 
-  function startTimer(id) {
-    const t = timers[id];
-    if (!t || t.state === 'running') return;
-    unlockAudio();
-    SoundEngine.stopLoop(id);
-    if (t.state === 'done') t.remaining = t.total;
-    t.state = 'running';
-    worker.postMessage({ cmd: 'start', id, remaining: t.remaining });
-    updateCardState(id);
-    renderTimerFace(id);
-    msRefresh();
-  }
-
-  function pauseTimer(id) {
-    const t = timers[id];
-    if (!t || t.state !== 'running') return;
-    worker.postMessage({ cmd: 'pause', id });
-  }
-
-  function resetTimer(id) {
-    const t = timers[id];
-    if (!t) return;
-    worker.postMessage({ cmd: 'stop', id });
-    SoundEngine.stopLoop(id);
-    t.remaining = t.total;
-    t.state = 'idle';
-    renderTimerFace(id);
-    updateCardState(id);
-    msRefresh();
-  }
-
-  function stopAlarm(id) {
-    SoundEngine.stopLoop(id);
-    updateCardState(id);
-    msRefresh();
-  }
-
-  function removeTimer(id) {
-    worker.postMessage({ cmd: 'stop', id });
-    SoundEngine.stopLoop(id);
-    delete timers[id];
-    const card = document.querySelector(`[data-id="${id}"]`);
-    if (card) card.remove();
-    checkEmpty();
-    msRefresh();
-  }
-
-  function savePreset(id) {
-    const t = timers[id];
-    if (!t) return;
-    const presets = loadPresets();
-    presets.push({ name: t.name, hours: t.hours, minutes: t.minutes, seconds: t.seconds, sound: t.sound });
-    localStorage.setItem('mt-presets', JSON.stringify(presets));
-    renderPresets();
-    showToast(`Preset "${t.name}" saved`);
-  }
-
-  function deletePreset(idx) {
-    const presets = loadPresets();
-    presets.splice(idx, 1);
-    localStorage.setItem('mt-presets', JSON.stringify(presets));
-    renderPresets();
-  }
-
-  function loadPresets() { try { return JSON.parse(localStorage.getItem('mt-presets')) || []; } catch { return []; } }
-
-  function ringOffset(remaining, total) { const frac = total > 0 ? remaining / total : 0; return CIRC * (1 - frac); }
-  function ringColor(remaining, total) {
-    const pct = total > 0 ? remaining / total : 0;
-    if (pct > 0.5) return '#6c63ff';
-    if (pct > 0.2) return '#facc15';
-    return '#f87171';
-  }
-
-  function renderTimer(id) {
-    const t = timers[id];
-    const grid = $('timers-grid');
-    const empty = grid.querySelector('.empty-state');
-    if (empty) empty.remove();
-    const card = document.createElement('div');
-    card.className = 'timer-card';
+    const timer = timers[id];
+    const card  = document.createElement('div');
+    card.className  = 'timer-circle';
     card.dataset.id = id;
-    card.innerHTML = `
-      <div class="timer-header">
-        <div class="timer-color-dot" style="background:${t.color}"></div>
-        <span class="timer-name" title="${t.name}">${t.name}</span>
-        <span class="sound-badge" id="sound-badge-${id}">${SOUND_LABEL[t.sound] || t.sound}</span>
-        <button class="btn-icon" onclick="App.removeTimer(${id})">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="timer-visual">
-        <svg class="progress-ring" width="130" height="130" viewBox="0 0 130 130">
-          <circle class="ring-bg" cx="65" cy="65" r="${RING_R}" stroke-width="10"/>
-          <circle class="ring-fill" id="ring-${id}" cx="65" cy="65" r="${RING_R}" stroke-width="10" stroke-dasharray="${CIRC}" stroke-dashoffset="0" stroke="${t.color}"/>
+    card.innerHTML  = `
+      <div class="circle-wrap">
+        <svg class="circle-svg" width="130" height="130" viewBox="0 0 130 130">
+          <circle class="ring-bg"   cx="65" cy="65" r="${RING_R}" stroke-width="9"/>
+          <circle class="ring-fill" cx="65" cy="65" r="${RING_R}" stroke-width="9"
+                  id="ring-${id}"
+                  stroke-dasharray="${CIRC}"
+                  stroke-dashoffset="0"
+                  stroke="${timer.color}"/>
         </svg>
-        <div class="timer-time-overlay">
-          <div class="timer-display" id="display-${id}">${formatTime(t.total)}</div>
-          <div class="timer-status status-idle" id="status-${id}">READY</div>
+        <div class="circle-inner">
+          <div class="circle-time"  id="display-${id}">${formatTime(timer.total)}</div>
+          <div class="circle-state" id="state-${id}">▶</div>
         </div>
       </div>
-      <div class="alarm-banner" id="alarm-banner-${id}" style="display:none;">
-        <span>🔔 Alarm!</span>
-        <button class="btn btn-stop-alarm" onclick="App.stopAlarm(${id})">Stop</button>
-      </div>
-      <div class="timer-controls">
-        <button class="btn btn-primary" id="btn-start-${id}" onclick="App.startTimer(${id})">▶ Start</button>
-        <button class="btn btn-ghost" id="btn-pause-${id}" onclick="App.pauseTimer(${id})" disabled>⏸ Pause</button>
-        <button class="btn btn-ghost btn-sm" onclick="App.resetTimer(${id})">↺</button>
-      </div>
-      <div class="save-preset-row">
-        <button class="btn btn-ghost btn-sm" onclick="App.savePreset(${id})">Save Preset</button>
-      </div>
+      <div class="circle-name">${timer.name}</div>
     `;
+    card.addEventListener('click', () => toggleTimer(id));
     grid.appendChild(card);
   }
 
-  function renderTimerFace(id) {
+  function renderCircleFace(id) {
     const t = timers[id];
     if (!t) return;
-    $(`display-${id}`).textContent = formatTime(t.remaining);
-    $(`ring-${id}`).style.strokeDashoffset = ringOffset(t.remaining, t.total);
-    $(`ring-${id}`).style.stroke = t.state === 'done' ? '#4ade80' : ringColor(t.remaining, t.total);
+
+    const ring    = $(`ring-${id}`);
+    const display = $(`display-${id}`);
+    const state   = $(`state-${id}`);
+    const card    = document.querySelector(`.timer-circle[data-id="${id}"]`);
+
+    if (display) display.textContent = formatTime(t.remaining);
+
+    if (ring) {
+      const frac   = t.total > 0 ? t.remaining / t.total : 0;
+      const offset = +(CIRC * (1 - frac)).toFixed(2);
+      ring.style.strokeDashoffset = offset;
+      ring.style.stroke = t.state === 'done' ? '#4ade80'
+                        : frac > 0.5          ? t.color
+                        : frac > 0.2          ? '#facc15'
+                        :                       '#f87171';
+    }
+
+    if (state) {
+      state.textContent = t.state === 'running' ? '⏸'
+                        : t.state === 'done'    ? '🔔'
+                        :                         '▶';
+    }
+
+    if (card) {
+      card.className  = `timer-circle ${t.state}`;
+      card.dataset.id = id;
+    }
   }
 
-  function updateCardState(id) {
-    const t = timers[id];
-    if (!t) return;
-    const ringing = SoundEngine.isLooping(id);
-    const statusEl = $(`status-${id}`);
-    const btnStart = $(`btn-start-${id}`);
-    const btnPause = $(`btn-pause-${id}`);
-    const banner = $(`alarm-banner-${id}`);
-    const stateMap = {
-      idle: { label:'READY', cls:'status-idle', startTxt:'▶ Start', startDis:false, pauseDis:true },
-      running: { label:'RUNNING', cls:'status-running', startTxt:'▶ Start', startDis:true, pauseDis:false },
-      paused: { label:'PAUSED', cls:'status-paused', startTxt:'▶ Resume', startDis:false, pauseDis:true },
-      done: { label:'DONE', cls:'status-done', startTxt:'↺ Restart', startDis:false, pauseDis:true },
-    };
-    const s = stateMap[t.state] || stateMap.idle;
-    statusEl.textContent = s.label;
-    statusEl.className = `timer-status ${s.cls}`;
-    btnStart.textContent = s.startTxt;
-    btnStart.disabled = s.startDis;
-    btnPause.disabled = s.pauseDis;
-    if (banner) banner.style.display = ringing ? 'flex' : 'none';
-  }
-
-  function renderPresets() {
-    const list = $('presets-list');
-    const presets = loadPresets();
-    list.innerHTML = '';
-    if (!presets.length) { list.innerHTML = '<span class="no-presets">No presets.</span>'; return; }
-    presets.forEach((p, i) => {
-      const chip = document.createElement('div');
-      chip.className = 'preset-chip';
-      chip.innerHTML = `<button onclick='App.addTimer(${JSON.stringify(p)})'>${p.name} · ${formatTime(hmsToMs(p.hours,p.minutes,p.seconds))}</button><button onclick="App.deletePreset(${i})">✕</button>`;
-      list.appendChild(chip);
+  function renderSavedList() {
+    const container = $('saved-items');
+    if (!container) return;
+    const saved = loadSaved();
+    if (!saved.length) {
+      container.innerHTML = '<p class="no-saved">No timers saved yet.</p>';
+      return;
+    }
+    container.innerHTML = '';
+    saved.forEach(s => {
+      const item = document.createElement('div');
+      item.className = 'saved-item';
+      item.innerHTML = `
+        <div class="saved-dot" style="background:${s.color}"></div>
+        <div class="saved-info">
+          <span class="saved-name">${s.name}</span>
+          <span class="saved-dur">${formatTime(hmsToMs(s.hours, s.minutes, s.seconds))}</span>
+        </div>
+        <button class="btn-delete" onclick="App.deleteTimer(${s.id})" title="Delete">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      `;
+      container.appendChild(item);
     });
   }
 
-  function checkEmpty() { if (!$('timers-grid').querySelector('.timer-card')) $('timers-grid').innerHTML = '<div class="empty-state">⏳ No timers.</div>'; }
+  function checkEmpty() {
+    const hasCircles = !!document.querySelector('.timer-circle');
+    const empty = $('empty-home');
+    if (empty) empty.style.display = hasCircles ? 'none' : 'flex';
+  }
 
+  // ── Init ──────────────────────────────────────────────────────────────────
   function init() {
-    renderPresets();
+    const saved = loadSaved();
+    colorIndex  = saved.length % COLORS.length;
+
+    saved.forEach(s => {
+      const total = hmsToMs(s.hours, s.minutes, s.seconds);
+      timers[s.id] = { id: s.id, name: s.name, color: s.color, sound: s.sound,
+                       total, remaining: total, state: 'idle' };
+    });
+
+    if (saved.length > 0) {
+      $('empty-home').style.display = 'none';
+      saved.forEach(s => renderCircle(s.id));
+    }
+
+    renderSavedList();
     setupMediaActions();
-    ['timer-name','t-hours','t-minutes','t-seconds'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') addTimer(); }));
+
+    ['timer-name', 't-hours', 't-minutes', 't-seconds'].forEach(id => {
+      $(id)?.addEventListener('keydown', e => { if (e.key === 'Enter') saveNewTimer(); });
+    });
   }
 
   init();
-  return { addTimer, startTimer, pauseTimer, resetTimer, stopAlarm, removeTimer, savePreset, deletePreset };
+  return { saveNewTimer, deleteTimer, toggleTimer, switchPage };
 })();
 
 // ── Service Worker ─────────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').then(reg => console.log('SW OK')).catch(err => console.warn('SW Fail'));
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => {})
+      .catch(err => console.warn('SW Fail', err));
   });
 }
 

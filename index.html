@@ -3,11 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MultiTimer — Precision Timers</title>
+  <title>MultiTimer</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#6c63ff" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -18,83 +17,95 @@
 </head>
 <body>
 
-<header>
-  <span class="logo">⏱ MultiTimer</span>
-  <span class="tagline">Background-safe precision timers</span>
-  <button id="pwa-install-btn" class="btn btn-ghost btn-sm" style="display:none; margin-left:8px;" title="Install app on home screen">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-    Install App
+<!-- ── Home page ── -->
+<section id="page-home" class="page active">
+  <header class="app-header">
+    <span class="app-logo">⏱ MultiTimer</span>
+    <button id="pwa-install-btn" class="btn-install" style="display:none" title="Install app">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Install
+    </button>
+  </header>
+
+  <div id="circles-grid" class="circles-grid"></div>
+
+  <div id="empty-home" class="empty-home">
+    <div class="empty-icon">⏱</div>
+    <p>No timers yet.<br>Tap <strong>+ New</strong> below to add one.</p>
+  </div>
+</section>
+
+<!-- ── New Timer page ── -->
+<section id="page-new" class="page">
+  <header class="app-header">
+    <span class="app-logo">New Timer</span>
+  </header>
+
+  <div class="form-card">
+    <div class="form-row">
+      <label class="form-label" for="timer-name">Name</label>
+      <input type="text" id="timer-name" class="form-input" placeholder="e.g. Pomodoro" maxlength="40" />
+    </div>
+
+    <div class="form-row">
+      <label class="form-label">Duration</label>
+      <div class="duration-row">
+        <div class="duration-field">
+          <input type="number" id="t-hours" class="form-input dur-input" min="0" max="99" value="0" />
+          <span class="dur-label">h</span>
+        </div>
+        <div class="duration-field">
+          <input type="number" id="t-minutes" class="form-input dur-input" min="0" max="59" value="5" />
+          <span class="dur-label">m</span>
+        </div>
+        <div class="duration-field">
+          <input type="number" id="t-seconds" class="form-input dur-input" min="0" max="59" value="0" />
+          <span class="dur-label">s</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label" for="t-sound">Alarm Sound</label>
+      <div class="sound-row">
+        <select id="t-sound" class="form-input form-select">
+          <option value="chime">🎵 Chime</option>
+          <option value="bell">🔔 Bell</option>
+          <option value="alarm">🚨 Alarm</option>
+          <option value="beep">📳 Beep</option>
+          <option value="pulse">💥 Pulse</option>
+        </select>
+        <button class="btn-preview" onclick="SoundEngine.preview($('t-sound').value)" title="Preview sound">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <button class="btn-add" onclick="App.saveNewTimer()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Save Timer
+    </button>
+  </div>
+
+  <div class="saved-section">
+    <h2 class="saved-title">Saved Timers</h2>
+    <div id="saved-items"></div>
+  </div>
+</section>
+
+<!-- ── Bottom tab bar ── -->
+<nav class="tab-bar">
+  <button class="tab active" id="tab-home" onclick="App.switchPage('home')">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    <span>Timers</span>
   </button>
-</header>
-
-<main>
-  <div class="add-card">
-    <h2>Add New Timer</h2>
-
-    <div class="field" style="flex:2; min-width:140px;">
-      <label for="timer-name">Name</label>
-      <input type="text" id="timer-name" placeholder="e.g. Pomodoro" maxlength="40" />
-    </div>
-
-    <div class="field-time" style="flex:3; min-width:200px;">
-      <div class="field">
-        <label for="t-hours">Hours</label>
-        <input type="number" id="t-hours" min="0" max="99" value="0" />
-      </div>
-      <span style="padding-bottom:9px;">:</span>
-      <div class="field">
-        <label for="t-minutes">Min</label>
-        <input type="number" id="t-minutes" min="0" max="59" value="5" />
-      </div>
-      <span style="padding-bottom:9px;">:</span>
-      <div class="field">
-        <label for="t-seconds">Sec</label>
-        <input type="number" id="t-seconds" min="0" max="59" value="0" />
-      </div>
-    </div>
-
-    <div class="field" style="min-width:150px;">
-      <label for="t-sound">Alarm Sound</label>
-      <select id="t-sound" class="sound-select">
-        <option value="chime">🎵 Chime</option>
-        <option value="bell">🔔 Bell</option>
-        <option value="alarm">🚨 Alarm</option>
-        <option value="beep">📳 Beep</option>
-        <option value="pulse">💥 Pulse</option>
-      </select>
-    </div>
-
-    <div style="display:flex;gap:8px;align-items:flex-end;">
-      <button class="btn btn-ghost btn-sm" onclick="SoundEngine.preview($('t-sound').value)" title="Preview sound" style="padding:9px 12px;">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-      </button>
-      <button class="btn btn-primary" onclick="App.addTimer()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add Timer
-      </button>
-    </div>
-  </div>
-
-  <div class="presets-section">
-    <h2>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-      Saved Presets
-    </h2>
-    <div class="presets-list" id="presets-list">
-      <span class="no-presets">No presets saved yet.</span>
-    </div>
-  </div>
-
-  <div class="timers-grid" id="timers-grid">
-    <div class="empty-state">
-      <div class="icon">⏳</div>
-      <p>No timers yet. Add one above!</p>
-    </div>
-  </div>
-</main>
+  <button class="tab" id="tab-new" onclick="App.switchPage('new')">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    <span>+ New</span>
+  </button>
+</nav>
 
 <div id="toast-container"></div>
-
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
