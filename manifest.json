@@ -34,22 +34,20 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Mobile View"
+      "label": "MultiTimer on Android"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "Desktop View"
+      "label": "MultiTimer on Desktop"
     }
   ],
   "categories": ["utilities", "productivity"],
   "shortcuts": [
     {
       "name": "Add Timer",
-      "short_name": "Add",
-      "description": "Open MultiTimer to add a new timer",
       "url": "./index.html",
       "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
     }
