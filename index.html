@@ -54,19 +54,16 @@
 
     <div class="form-row">
       <label class="form-label">Duration</label>
-      <div class="duration-row">
-        <div class="duration-field">
-          <input type="number" id="t-hours" class="form-input dur-input" min="0" max="99" value="0" />
-          <span class="dur-label">h</span>
-        </div>
-        <div class="duration-field">
-          <input type="number" id="t-minutes" class="form-input dur-input" min="0" max="59" value="5" />
-          <span class="dur-label">m</span>
-        </div>
-        <div class="duration-field">
-          <input type="number" id="t-seconds" class="form-input dur-input" min="0" max="59" value="0" />
-          <span class="dur-label">s</span>
-        </div>
+      <div class="drum-picker-wrap">
+        <div class="drum-highlight-bar"></div>
+        <div class="drum-fade drum-fade-top"></div>
+        <div class="drum-col" id="drum-h"></div>
+        <span class="drum-sep">h</span>
+        <div class="drum-col" id="drum-m"></div>
+        <span class="drum-sep">m</span>
+        <div class="drum-col" id="drum-s"></div>
+        <span class="drum-sep">s</span>
+        <div class="drum-fade drum-fade-bot"></div>
       </div>
     </div>
 
@@ -111,6 +108,6 @@
 </nav>
 
 <div id="toast-container"></div>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

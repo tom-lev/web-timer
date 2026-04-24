@@ -541,6 +541,88 @@ body {
 }
 .sheet-btn-cancel:hover { background: var(--surface2); }
 
+/* ── Drum picker ── */
+.drum-picker-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  height: 220px;
+  overflow: hidden;
+}
+
+.drum-highlight-bar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 44px;
+  background: rgba(108,99,255,.14);
+  border: 1.5px solid rgba(108,99,255,.38);
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.drum-fade {
+  position: absolute;
+  left: 0; right: 0;
+  height: 72px;
+  z-index: 3;
+  pointer-events: none;
+}
+.drum-fade-top { top: 0;    background: linear-gradient(to bottom, var(--surface2) 15%, transparent); }
+.drum-fade-bot { bottom: 0; background: linear-gradient(to top,   var(--surface2) 15%, transparent); }
+
+.drum-col {
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+  cursor: ns-resize;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  z-index: 1;
+}
+
+.drum-list {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+
+.drum-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  font-size: 1.45rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: color .1s;
+}
+
+.drum-item.selected { color: var(--text); }
+
+.drum-sep {
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: .05em;
+  z-index: 4;
+  pointer-events: none;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+
 /* ── Edit mode banner ── */
 .edit-banner {
   display: flex;

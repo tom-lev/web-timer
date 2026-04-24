@@ -26,6 +26,152 @@ const COLORS = ['#6c63ff','#ff6584','#4ade80','#facc15','#38bdf8','#fb923c','#a7
 let colorIndex = 0;
 function nextColor() { return COLORS[colorIndex++ % COLORS.length]; }
 
+// ── Tick sound for drum picker ─────────────────────────────────────────────
+let _tickCtx = null;
+function playTick() {
+  try {
+    if (!_tickCtx || _tickCtx.state === 'closed')
+      _tickCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_tickCtx.state === 'suspended') _tickCtx.resume();
+    const osc  = _tickCtx.createOscillator();
+    const gain = _tickCtx.createGain();
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.08, _tickCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, _tickCtx.currentTime + 0.045);
+    osc.connect(gain);
+    gain.connect(_tickCtx.destination);
+    osc.start(_tickCtx.currentTime);
+    osc.stop(_tickCtx.currentTime + 0.05);
+  } catch (_) {}
+}
+
+// ── Drum Picker ────────────────────────────────────────────────────────────
+class DrumPicker {
+  constructor(el, values, initial = 0) {
+    this.el       = el;
+    this.values   = values;
+    this.ITEM_H   = 44;
+    this.VIEW_H   = 220;
+    this.selected = Math.max(0, Math.min(initial, values.length - 1));
+    this.offset   = this._offsetFor(this.selected);
+    this.dragging = false;
+    this.startY   = 0;
+    this.startOff = 0;
+    this.lastY    = 0;
+    this.velocity = 0;
+    this.lastSel  = this.selected;
+    this._build();
+    this._bind();
+    this._render(false);
+  }
+
+  _offsetFor(idx) {
+    return this.VIEW_H / 2 - this.ITEM_H / 2 - idx * this.ITEM_H;
+  }
+
+  _idxFor(offset) {
+    return Math.round((this.VIEW_H / 2 - this.ITEM_H / 2 - offset) / this.ITEM_H);
+  }
+
+  _clamp(offset) {
+    return Math.max(this._offsetFor(this.values.length - 1),
+                    Math.min(this._offsetFor(0), offset));
+  }
+
+  _build() {
+    this.list = document.createElement('div');
+    this.list.className = 'drum-list';
+    this.values.forEach(v => {
+      const item = document.createElement('div');
+      item.className = 'drum-item';
+      item.textContent = String(v).padStart(2, '0');
+      this.list.appendChild(item);
+    });
+    this.el.appendChild(this.list);
+    this._highlight();
+  }
+
+  _render(animate = true) {
+    this.list.style.transition = animate
+      ? 'transform .2s cubic-bezier(.25,.46,.45,.94)' : 'none';
+    this.list.style.transform = `translateY(${this.offset}px)`;
+    const idx = Math.max(0, Math.min(this.values.length - 1, this._idxFor(this.offset)));
+    if (idx !== this.selected) {
+      this.selected = idx;
+      this._highlight();
+      if (idx !== this.lastSel) { playTick(); this.lastSel = idx; }
+    }
+  }
+
+  _highlight() {
+    Array.from(this.list.children).forEach((item, i) => {
+      const dist = Math.abs(i - this.selected);
+      item.classList.toggle('selected', dist === 0);
+      item.style.opacity   = String(Math.max(0.18, 1 - dist * 0.28));
+      item.style.transform = `scale(${Math.max(0.72, 1 - dist * 0.1)})`;
+    });
+  }
+
+  _snap() {
+    this.offset = this._clamp(this._offsetFor(this.selected));
+    this._render(true);
+  }
+
+  _bind() {
+    const onStart = y => {
+      this.dragging = true;
+      this.startY   = y;
+      this.startOff = this.offset;
+      this.lastY    = y;
+      this.velocity = 0;
+      this.list.style.transition = 'none';
+    };
+    const onMove = y => {
+      if (!this.dragging) return;
+      this.velocity = y - this.lastY;
+      this.lastY    = y;
+      this.offset   = this._clamp(this.startOff + (y - this.startY));
+      this._render(false);
+    };
+    const onEnd = () => {
+      if (!this.dragging) return;
+      this.dragging = false;
+      if (Math.abs(this.velocity) > 2) {
+        this.offset = this._clamp(this.offset + this.velocity * 5);
+        this._render(false);
+        setTimeout(() => this._snap(), 60);
+      } else {
+        this._snap();
+      }
+    };
+
+    this.el.addEventListener('touchstart', e => onStart(e.touches[0].clientY), { passive: true });
+    this.el.addEventListener('touchmove',  e => { e.preventDefault(); onMove(e.touches[0].clientY); }, { passive: false });
+    this.el.addEventListener('touchend',   () => onEnd());
+    this.el.addEventListener('mousedown',  e => onStart(e.clientY));
+    window.addEventListener('mousemove',   e => { if (this.dragging) onMove(e.clientY); });
+    window.addEventListener('mouseup',     () => onEnd());
+    this.el.addEventListener('wheel', e => {
+      e.preventDefault();
+      const next = Math.max(0, Math.min(this.values.length - 1, this.selected + Math.sign(e.deltaY)));
+      if (next !== this.selected) { this.selected = next; this.offset = this._offsetFor(next); this._render(true); this._highlight(); playTick(); this.lastSel = next; }
+    }, { passive: false });
+  }
+
+  getValue() { return this.values[this.selected]; }
+
+  setValue(v) {
+    const idx = this.values.indexOf(v);
+    if (idx < 0) return;
+    this.selected = idx;
+    this.lastSel  = idx;
+    this.offset   = this._offsetFor(idx);
+    this._render(false);
+    this._highlight();
+  }
+}
+
 // ── Sound Engine ───────────────────────────────────────────────────────────
 const SoundEngine = (() => {
   let ctx = null;
@@ -94,8 +240,9 @@ const App = (() => {
   const RING_R = 54;
   const CIRC   = +(2 * Math.PI * RING_R).toFixed(2);
 
-  let timers    = {};  // runtime: id → { id, name, color, sound, total, remaining, state }
+  let timers    = {};  // runtime: id → { id, name, color, sound, total, remaining, state, overtime }
   let editingId = null;
+  let drums     = {};  // { h, m, s } — DrumPicker instances
 
   // ── Audio unlock ──────────────────────────────────────────────────────────
   let silentEl = null, audioUnlocked = false;
@@ -138,11 +285,11 @@ const App = (() => {
     const saved = loadSaved().find(s => s.id === id);
     if (!saved) return;
     editingId = id;
-    $('timer-name').value  = saved.name;
-    $('t-hours').value     = saved.hours;
-    $('t-minutes').value   = saved.minutes;
-    $('t-seconds').value   = saved.seconds;
-    $('t-sound').value     = saved.sound;
+    $('timer-name').value = saved.name;
+    drums.h.setValue(saved.hours);
+    drums.m.setValue(saved.minutes);
+    drums.s.setValue(saved.seconds);
+    $('t-sound').value    = saved.sound;
     $('btn-save').textContent = '✓ Update Timer';
     $('edit-banner').style.display  = 'flex';
     $('edit-banner-name').textContent = saved.name;
@@ -159,15 +306,14 @@ const App = (() => {
   // ── Add / Update timer ────────────────────────────────────────────────────
   function saveNewTimer() {
     const name    = $('timer-name').value.trim() || 'Timer';
-    const hours   = parseInt($('t-hours').value)   || 0;
-    const minutes = parseInt($('t-minutes').value) || 0;
-    const seconds = parseInt($('t-seconds').value) || 0;
+    const hours   = drums.h.getValue();
+    const minutes = drums.m.getValue();
+    const seconds = drums.s.getValue();
     const sound   = $('t-sound').value;
     const total   = hmsToMs(hours, minutes, seconds);
     if (total <= 0) { showToast('Set a duration > 0', 'error'); return; }
 
     if (editingId) {
-      // Update existing
       const saved = loadSaved();
       const idx   = saved.findIndex(s => s.id === editingId);
       if (idx !== -1) {
@@ -198,7 +344,7 @@ const App = (() => {
     saved.push({ id, name, hours, minutes, seconds, sound, color });
     writeSaved(saved);
 
-    timers[id] = { id, name, color, sound, total, remaining: total, state: 'idle' };
+    timers[id] = { id, name, color, sound, total, remaining: total, state: 'idle', overtime: 0 };
     renderCircle(id);
     renderSavedList();
     showToast(`"${name}" saved`);
@@ -284,6 +430,7 @@ const App = (() => {
     SoundEngine.stopLoop(id);
     worker.postMessage({ cmd: 'stop', id });
     t.remaining = t.total;
+    t.overtime  = 0;
     t.state = 'idle';
     renderCircleFace(id);
     msRefresh();
@@ -369,12 +516,16 @@ const App = (() => {
       msRefresh();
     } else if (data.type === 'done') {
       t.remaining = 0;
+      t.overtime  = 0;
       t.state = 'done';
       renderCircleFace(data.id);
       SoundEngine.startLoop(data.id, t.sound);
       msRefresh();
       showToast(`"${t.name}" finished!`, 'success');
       showTimerNotification(data.id, t.name);
+    } else if (data.type === 'overtime') {
+      t.overtime = data.elapsed;
+      renderCircleFace(data.id);
     } else if (data.type === 'paused') {
       t.remaining = data.remaining;
       t.state = 'paused';
@@ -424,7 +575,13 @@ const App = (() => {
     const state   = $(`state-${id}`);
     const card    = document.querySelector(`.timer-circle[data-id="${id}"]`);
 
-    if (display) display.textContent = formatTime(t.remaining);
+    if (display) {
+      if (t.state === 'done' && t.overtime > 0) {
+        display.textContent = '+' + formatTime(t.overtime);
+      } else {
+        display.textContent = formatTime(t.remaining);
+      }
+    }
 
     if (ring) {
       const frac   = t.total > 0 ? t.remaining / t.total : 0;
@@ -488,7 +645,7 @@ const App = (() => {
     saved.forEach(s => {
       const total = hmsToMs(s.hours, s.minutes, s.seconds);
       timers[s.id] = { id: s.id, name: s.name, color: s.color, sound: s.sound,
-                       total, remaining: total, state: 'idle' };
+                       total, remaining: total, state: 'idle', overtime: 0 };
     });
 
     if (saved.length > 0) {
@@ -496,12 +653,18 @@ const App = (() => {
       saved.forEach(s => renderCircle(s.id));
     }
 
+    // Drum pickers
+    const hrs  = Array.from({ length: 24 }, (_, i) => i);
+    const mins = Array.from({ length: 60 }, (_, i) => i);
+    const secs = Array.from({ length: 60 }, (_, i) => i);
+    drums.h = new DrumPicker($('drum-h'), hrs,  0);
+    drums.m = new DrumPicker($('drum-m'), mins, 5);
+    drums.s = new DrumPicker($('drum-s'), secs, 0);
+
     renderSavedList();
     setupMediaActions();
 
-    ['timer-name', 't-hours', 't-minutes', 't-seconds'].forEach(id => {
-      $(id)?.addEventListener('keydown', e => { if (e.key === 'Enter') saveNewTimer(); });
-    });
+    $('timer-name')?.addEventListener('keydown', e => { if (e.key === 'Enter') saveNewTimer(); });
   }
 
   init();
