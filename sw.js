@@ -8,7 +8,7 @@ const CACHE_NAME = 'multitimer-v5';
 const PRECACHE = [
   './',
   './index.html',
-  './app.js',
+  './app.js?v=3',
   './style.css',
   './timer-worker.js',
   './manifest.json',
