@@ -279,8 +279,83 @@ const worker = new Worker(URL.createObjectURL(workerBlob));
 const App = (() => {
   const RING_R = 52;
   const CIRC   = 2 * Math.PI * RING_R;
-  let timers   = {};  // { id: { name, color, sound, total, remaining, state, hours, minutes, seconds } }
+  let timers   = {};
   let uid      = 1;
+
+  // ── Silent audio for Media Session ───────────────────────────────────────
+  // Must be created and .play()-ed inside a direct user-gesture (tap).
+  // A valid 1-channel 8kHz WAV with 0 samples — smallest possible.
+  let silentEl = null;
+  let audioUnlocked = false;
+
+  function ensureSilentAudio() {
+    if (silentEl) return;
+    // 44-byte WAV: RIFF header + fmt chunk + empty data chunk
+    const wav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    silentEl = new window.Audio(wav);
+    silentEl.loop   = true;
+    silentEl.volume = 0.001;
+  }
+
+  // Called DIRECTLY from tap handler — this is what unlocks autoplay
+  function unlockAudio() {
+    ensureSilentAudio();
+    if (audioUnlocked) return;
+    silentEl.play().then(() => { audioUnlocked = true; }).catch(() => {});
+  }
+
+  function playSilent() {
+    ensureSilentAudio();
+    if (silentEl.paused) silentEl.play().catch(() => {});
+  }
+
+  function stopSilent() {
+    if (silentEl && !silentEl.paused) { silentEl.pause(); silentEl.currentTime = 0; }
+  }
+
+  // ── Media Session ─────────────────────────────────────────────────────────
+  function msRefresh() {
+    if (!('mediaSession' in navigator)) return;
+
+    // Pick best timer: running > paused > done
+    const all  = Object.values(timers);
+    const best = all.find(t => t.state === 'running')
+              || all.find(t => t.state === 'paused')
+              || all.find(t => t.state === 'done');
+
+    if (!best) {
+      navigator.mediaSession.metadata      = null;
+      navigator.mediaSession.playbackState = 'none';
+      stopSilent();
+      return;
+    }
+
+    playSilent();
+    const icon = best.state === 'running' ? ' ▶' : best.state === 'paused' ? ' ⏸' : ' ✅';
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title:  formatTime(best.remaining) + icon,
+      artist: best.name,
+      album:  'MultiTimer',
+    });
+    navigator.mediaSession.playbackState = best.state === 'running' ? 'playing' : 'paused';
+  }
+
+  function setupMediaActions() {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.setActionHandler('play', () => {
+      const entry = Object.entries(timers).find(([,t]) => t.state === 'paused');
+      if (entry) startTimer(Number(entry[0]));
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      const entry = Object.entries(timers).find(([,t]) => t.state === 'running');
+      if (entry) pauseTimer(Number(entry[0]));
+    });
+    navigator.mediaSession.setActionHandler('stop', () => {
+      Object.entries(timers).forEach(([id, t]) => {
+        if (t.state === 'done') stopAlarm(Number(id));
+      });
+    });
+  }
 
   // ── Worker messages ──────────────────────────────────────────────────────
   worker.onmessage = ({ data }) => {
@@ -290,6 +365,7 @@ const App = (() => {
     if (data.type === 'tick') {
       t.remaining = data.remaining;
       renderTimerFace(data.id);
+      msRefresh();
 
     } else if (data.type === 'done') {
       t.remaining = 0;
@@ -297,6 +373,7 @@ const App = (() => {
       renderTimerFace(data.id);
       updateCardState(data.id);
       Audio.startLoop(data.id, t.sound);
+      msRefresh();
       showToast(`"${t.name}" finished! Tap Stop Alarm to silence.`, 'success');
 
     } else if (data.type === 'paused') {
@@ -304,6 +381,7 @@ const App = (() => {
       t.state = 'paused';
       renderTimerFace(data.id);
       updateCardState(data.id);
+      msRefresh();
     }
   };
 
@@ -318,7 +396,7 @@ const App = (() => {
 
     if (total <= 0) { showToast('Set a duration > 0', 'error'); return; }
 
-    const id   = uid++;
+    const id    = uid++;
     const color = nextColor();
     timers[id] = { name, color, sound, total, remaining: total, state: 'idle', hours, minutes, seconds };
 
@@ -329,13 +407,14 @@ const App = (() => {
   function startTimer(id) {
     const t = timers[id];
     if (!t || t.state === 'running') return;
-    // If alarm was ringing, stop it first
+    unlockAudio();                          // ← user gesture is HERE
     Audio.stopLoop(id);
     if (t.state === 'done') t.remaining = t.total;
     t.state = 'running';
     worker.postMessage({ cmd: 'start', id, remaining: t.remaining });
     updateCardState(id);
     renderTimerFace(id);
+    msRefresh();
   }
 
   function pauseTimer(id) {
@@ -353,11 +432,13 @@ const App = (() => {
     t.state = 'idle';
     renderTimerFace(id);
     updateCardState(id);
+    msRefresh();
   }
 
   function stopAlarm(id) {
     Audio.stopLoop(id);
-    updateCardState(id); // re-render buttons without alarm banner
+    updateCardState(id);
+    msRefresh();
   }
 
   function removeTimer(id) {
@@ -367,6 +448,7 @@ const App = (() => {
     const card = document.querySelector(`[data-id="${id}"]`);
     if (card) card.remove();
     checkEmpty();
+    msRefresh();
   }
 
   // ── Presets ──────────────────────────────────────────────────────────────
@@ -442,21 +524,14 @@ const App = (() => {
         </div>
       </div>
 
-      <!-- Alarm banner (hidden until done + ringing) -->
       <div class="alarm-banner" id="alarm-banner-${id}" style="display:none;">
         <span class="alarm-banner-text">🔔 Alarm ringing!</span>
-        <button class="btn btn-stop-alarm" onclick="App.stopAlarm(${id})">
-          Stop Alarm
-        </button>
+        <button class="btn btn-stop-alarm" onclick="App.stopAlarm(${id})">Stop Alarm</button>
       </div>
 
       <div class="timer-controls" id="controls-${id}">
-        <button class="btn btn-primary" id="btn-start-${id}" onclick="App.startTimer(${id})">
-          ▶ Start
-        </button>
-        <button class="btn btn-ghost" id="btn-pause-${id}" onclick="App.pauseTimer(${id})" disabled>
-          ⏸ Pause
-        </button>
+        <button class="btn btn-primary" id="btn-start-${id}" onclick="App.startTimer(${id})">▶ Start</button>
+        <button class="btn btn-ghost" id="btn-pause-${id}" onclick="App.pauseTimer(${id})" disabled>⏸ Pause</button>
         <button class="btn btn-ghost btn-sm" onclick="App.resetTimer(${id})" title="Reset">↺</button>
       </div>
 
@@ -488,7 +563,6 @@ const App = (() => {
     if (!t || !card) return;
 
     const ringing = Audio.isLooping(id);
-
     card.className = `timer-card ${t.state === 'running' ? 'running' : t.state === 'done' ? (ringing ? 'done ringing' : 'done') : ''}`;
 
     const statusEl = $(`status-${id}`);
@@ -509,8 +583,6 @@ const App = (() => {
     btnStart.textContent = s.startTxt;
     btnStart.disabled    = s.startDis;
     btnPause.disabled    = s.pauseDis;
-
-    // Show alarm banner only when done AND sound loop is active
     if (banner) banner.style.display = ringing ? 'flex' : 'none';
   }
 
@@ -549,6 +621,7 @@ const App = (() => {
   // ── Init ─────────────────────────────────────────────────────────────────
   function init() {
     renderPresets();
+    setupMediaActions();
     ['timer-name','t-hours','t-minutes','t-seconds'].forEach(elId => {
       $(elId).addEventListener('keydown', e => { if (e.key === 'Enter') addTimer(); });
     });
@@ -559,185 +632,87 @@ const App = (() => {
   return { addTimer, startTimer, pauseTimer, resetTimer, stopAlarm, removeTimer, savePreset, deletePreset };
 })();
 
-// ── Silent audio (must be created & played inside a user gesture) ─────────
-// We create ONE shared Audio element. It's played the first time the user
-// taps "Start" on any timer (that tap IS the user gesture Chrome requires).
-// Without audio playing, Chrome will not show/update the Media Session
-// notification in the Android notification shade.
+// ══════════════════════════════════════════════════════════════════════════
+// MEDIA SESSION  — reads state from the DOM, zero App/worker patching
+// ══════════════════════════════════════════════════════════════════════════
+(function initMediaSession() {
+  if (!('mediaSession' in navigator)) return;
 
-const SilentAudio = (() => {
-  let el = null;
-  let unlocked = false;
+  // Silent looping WAV — keeps Chrome's media notification widget alive.
+  // MUST call snd.play() synchronously inside a user-gesture click handler.
+  const snd = new Audio(
+    'data:audio/wav;base64,' +
+    'UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='
+  );
+  snd.loop   = true;
+  snd.volume = 0.001;
 
-  // 200ms of real silence encoded as a valid WAV data-URI.
-  // This is the minimum that reliably keeps Chrome's media session alive.
-  const WAV_SILENCE =
-    'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+  // Capture the very first tap anywhere on the page as the unlock gesture.
+  document.addEventListener('click', function unlock() {
+    snd.play().catch(() => {});
+    document.removeEventListener('click', unlock, true);
+  }, true);
 
-  function ensure() {
-    if (el) return;
-    el = new Audio(WAV_SILENCE);
-    el.loop   = true;
-    el.volume = 0.001; // audible to no one, but not muted (Chrome skips muted)
+  function silentPlay()  { if (snd.paused) snd.play().catch(() => {}); }
+  function silentPause() { if (!snd.paused) { snd.pause(); snd.currentTime = 0; } }
+
+  // Read current state from the DOM (no App internals needed).
+  function readCards() {
+    return Array.from(document.querySelectorAll('.timer-card[data-id]')).map(card => {
+      const id  = Number(card.dataset.id);
+      const txt = (document.getElementById('status-' + id)?.textContent || '').trim();
+      let state = 'idle';
+      if (txt === 'RUNNING') state = 'running';
+      else if (txt === 'PAUSED') state = 'paused';
+      else if (txt === 'DONE')   state = 'done';
+      return {
+        id,
+        name:    (card.querySelector('.timer-name')?.textContent || 'Timer').trim(),
+        timeStr: (document.getElementById('display-' + id)?.textContent || '00:00').trim(),
+        state,
+      };
+    });
   }
 
-  // Call this DIRECTLY inside a click/tap handler (user gesture context).
-  function unlock() {
-    ensure();
-    if (unlocked) return;
-    // play() inside a user gesture always succeeds
-    el.play().then(() => { unlocked = true; }).catch(() => {});
-  }
+  function updateNotification() {
+    const cards = readCards();
+    const best  = cards.find(t => t.state === 'running')
+               || cards.find(t => t.state === 'paused')
+               || cards.find(t => t.state === 'done');
 
-  function play() {
-    ensure();
-    if (el.paused) el.play().catch(() => {});
-  }
+    if (!best) {
+      silentPause();
+      navigator.mediaSession.metadata      = null;
+      navigator.mediaSession.playbackState = 'none';
+      return;
+    }
 
-  function pause() {
-    if (el && !el.paused) el.pause();
-  }
-
-  return { unlock, play, pause };
-})();
-
-// ── Media Session API ──────────────────────────────────────────────────────
-// Displays: Title = remaining time ("04:30 ▶"), Artist = timer name.
-// Controls: Play / Pause buttons in the Android notification shade.
-
-const MediaSession = (() => {
-  const supported = 'mediaSession' in navigator;
-
-  function setMeta(timeStr, name, state) {
-    if (!supported) return;
-    const icon = state === 'running' ? ' ▶' : state === 'paused' ? ' ⏸' : ' ✅';
+    silentPlay();
+    const icon = best.state === 'running' ? ' ▶' : best.state === 'paused' ? ' ⏸' : ' ✅';
     navigator.mediaSession.metadata = new MediaMetadata({
-      title:  timeStr + icon,
-      artist: name,
+      title:  best.timeStr + icon,
+      artist: best.name,
       album:  'MultiTimer',
     });
-    navigator.mediaSession.playbackState = state === 'running' ? 'playing' : 'paused';
+    navigator.mediaSession.playbackState = best.state === 'running' ? 'playing' : 'paused';
   }
 
-  function clear() {
-    if (!supported) return;
-    navigator.mediaSession.metadata      = null;
-    navigator.mediaSession.playbackState = 'none';
-    SilentAudio.pause();
-  }
-
-  function setupActions(getRunning, getPaused) {
-    if (!supported) return;
-    navigator.mediaSession.setActionHandler('play',  () => { const id = getPaused();  if (id != null) App.startTimer(id); });
-    navigator.mediaSession.setActionHandler('pause', () => { const id = getRunning(); if (id != null) App.pauseTimer(id); });
-    navigator.mediaSession.setActionHandler('stop',  () => {
-      // stop = dismiss — clear all ringing alarms
-      Object.keys(mirror).forEach(id => {
-        if (mirror[id]?.state === 'done') App.stopAlarm(Number(id));
-      });
-    });
-  }
-
-  return { setMeta, clear, setupActions };
-})();
-
-// ── Timer state mirror (for Media Session) ────────────────────────────────
-// Because App is a revealing module we can't access its internal `timers`
-// map directly.  We maintain a lightweight parallel mirror via:
-//   • MutationObserver to catch add/remove of timer cards
-//   • Patched App methods to catch state changes
-//   • Patched worker.onmessage to catch tick / done / paused
-
-const mirror = {}; // { [id]: { name, state, remaining } }
-
-function mirrorRefresh() {
-  // Pick the most "interesting" timer to show: running > paused > done
-  const all  = Object.values(mirror);
-  const best = all.find(t => t.state === 'running')
-            || all.find(t => t.state === 'paused')
-            || all.find(t => t.state === 'done');
-
-  if (!best) { MediaSession.clear(); return; }
-
-  SilentAudio.play(); // keep audio alive (no-op if already playing)
-  MediaSession.setMeta(formatTime(best.remaining), best.name, best.state);
-}
-
-// Watch timer cards being added / removed from the DOM
-new MutationObserver(muts => {
-  muts.forEach(m => {
-    m.addedNodes.forEach(node => {
-      if (node.nodeType !== 1 || !node.dataset?.id) return;
-      const id     = Number(node.dataset.id);
-      const nameEl = node.querySelector('.timer-name');
-      mirror[id]   = { name: nameEl?.textContent || `Timer ${id}`, state: 'idle', remaining: 0 };
-    });
-    m.removedNodes.forEach(node => {
-      if (node.nodeType !== 1 || !node.dataset?.id) return;
-      delete mirror[Number(node.dataset.id)];
-    });
+  // Notification shade buttons
+  navigator.mediaSession.setActionHandler('play', () => {
+    const t = readCards().find(c => c.state === 'paused');
+    if (t) App.startTimer(t.id);
   });
-}).observe(document.getElementById('timers-grid'), { childList: true });
+  navigator.mediaSession.setActionHandler('pause', () => {
+    const t = readCards().find(c => c.state === 'running');
+    if (t) App.pauseTimer(t.id);
+  });
+  navigator.mediaSession.setActionHandler('stop', () => {
+    readCards().filter(c => c.state === 'done').forEach(c => App.stopAlarm(c.id));
+  });
 
-// Intercept worker messages AFTER App's handler (App sets its own state first)
-const _appWorkerMsg = worker.onmessage;
-worker.onmessage = function({ data }) {
-  _appWorkerMsg?.call(this, { data }); // App processes first
-  const m = mirror[data.id];
-  if (!m) return;
-  if (data.type === 'tick')   { m.remaining = data.remaining; }
-  if (data.type === 'paused') { m.state = 'paused'; m.remaining = data.remaining; }
-  if (data.type === 'done')   { m.state = 'done'; m.remaining = 0; }
-  mirrorRefresh();
-};
-
-// Patch App public methods to keep mirror in sync
-;(function patchApp() {
-  const orig = {
-    start:  App.startTimer.bind(App),
-    pause:  App.pauseTimer.bind(App),
-    reset:  App.resetTimer.bind(App),
-    stop:   App.stopAlarm.bind(App),
-    remove: App.removeTimer.bind(App),
-  };
-
-  App.startTimer = id => {
-    // ★ This is a user gesture — unlock silent audio NOW
-    SilentAudio.unlock();
-    orig.start(id);
-    if (mirror[id]) mirror[id].state = 'running';
-    mirrorRefresh();
-  };
-
-  App.pauseTimer = id => {
-    orig.pause(id);
-    // mirror state confirmed via worker 'paused' message above
-  };
-
-  App.resetTimer = id => {
-    orig.reset(id);
-    if (mirror[id]) { mirror[id].state = 'idle'; mirror[id].remaining = 0; }
-    mirrorRefresh();
-  };
-
-  App.stopAlarm = id => {
-    orig.stop(id);
-    if (mirror[id]) { mirror[id].state = 'idle'; mirror[id].remaining = 0; }
-    mirrorRefresh();
-  };
-
-  App.removeTimer = id => {
-    orig.remove(id);
-    delete mirror[id];
-    mirrorRefresh();
-  };
+  // Poll every 500 ms — cheap, no patching needed
+  setInterval(updateNotification, 500);
 })();
-
-// Wire Media Session notification buttons
-MediaSession.setupActions(
-  () => { const e = Object.entries(mirror).find(([,v]) => v.state === 'running'); return e ? Number(e[0]) : null; },
-  () => { const e = Object.entries(mirror).find(([,v]) => v.state === 'paused');  return e ? Number(e[0]) : null; }
-);
 
 // ── Service Worker Registration ────────────────────────────────────────────
 
