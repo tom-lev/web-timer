@@ -142,7 +142,11 @@ const App = (() => {
       return;
     }
 
-    playSilent();
+    if (running.length > 0) {
+      playSilent();
+    } else {
+      stopSilent();
+    }
 
     const visible = running.length > 0 ? running : (paused.length > 0 ? paused : done);
     const title  = visible.map(t => formatTime(t.remaining)).join(' · ');
