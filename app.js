@@ -227,17 +227,67 @@ const SoundEngine = (() => {
   const cycleDuration = { chime: 2200, bell: 3500, alarm: 900, beep: 1100, pulse: 1000 };
   const loops = {};
 
-  function preview(soundKey) { if (sounds[soundKey]) sounds[soundKey](); }
-  function startLoop(timerId, soundKey) {
-    stopLoop(timerId);
-    const fn = sounds[soundKey] || sounds.chime;
-    fn();
-    loops[timerId] = setInterval(fn, cycleDuration[soundKey] || 2000);
+  // ── Custom audio file support ─────────────────────────────────────────────
+  const customBuffers = {};   // filename → decoded AudioBuffer
+  const customSources = {};   // timerId  → AudioBufferSourceNode (looping)
+
+  async function loadCustomBuffer(filename) {
+    if (customBuffers[filename]) return customBuffers[filename];
+    const url = `custom-sounds/${encodeURIComponent(filename)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const arrayBuf = await res.arrayBuffer();
+    const audioBuffer = await getCtx().decodeAudioData(arrayBuf);
+    customBuffers[filename] = audioBuffer;
+    return audioBuffer;
   }
+
+  async function preview(soundKey) {
+    if (sounds[soundKey]) { sounds[soundKey](); return; }
+    try {
+      const buffer = await loadCustomBuffer(soundKey);
+      const c = getCtx();
+      const src = c.createBufferSource();
+      src.buffer = buffer;
+      src.connect(c.destination);
+      src.start(0);
+    } catch (e) { console.warn('Custom sound preview failed:', soundKey, e); }
+  }
+
+  async function startLoop(timerId, soundKey) {
+    stopLoop(timerId);
+    if (sounds[soundKey]) {
+      const fn = sounds[soundKey];
+      fn();
+      loops[timerId] = setInterval(fn, cycleDuration[soundKey] || 2000);
+      return;
+    }
+    try {
+      const buffer = await loadCustomBuffer(soundKey);
+      const c = getCtx();
+      const src = c.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      src.connect(c.destination);
+      src.start(0);
+      customSources[timerId] = src;
+    } catch (e) {
+      // Fall back to chime if custom file is unavailable
+      const fn = sounds.chime;
+      fn();
+      loops[timerId] = setInterval(fn, 2000);
+    }
+  }
+
   function stopLoop(timerId) {
     if (loops[timerId] != null) { clearInterval(loops[timerId]); delete loops[timerId]; }
+    if (customSources[timerId]) {
+      try { customSources[timerId].stop(); } catch (_) {}
+      delete customSources[timerId];
+    }
   }
-  function isLooping(timerId) { return loops[timerId] != null; }
+
+  function isLooping(timerId) { return loops[timerId] != null || timerId in customSources; }
 
   return { preview, startLoop, stopLoop, isLooping };
 })();
@@ -675,6 +725,29 @@ const App = (() => {
     setupMediaActions();
 
     $('timer-name')?.addEventListener('keydown', e => { if (e.key === 'Enter') saveNewTimer(); });
+
+    // Load custom audio files listed in custom-sounds/sounds.json
+    fetch('custom-sounds/sounds.json')
+      .then(r => r.json())
+      .then(list => {
+        if (!list || !list.length) return;
+        const sel = $('t-sound');
+        const group = document.createElement('optgroup');
+        group.label = 'Custom';
+        list.forEach(({ name, file }) => {
+          const opt = document.createElement('option');
+          opt.value = file;
+          opt.textContent = name;
+          group.appendChild(opt);
+        });
+        sel.appendChild(group);
+        // Restore saved sound selection if it belongs to a custom sound
+        if (editingId) {
+          const saved = loadSaved().find(s => s.id === editingId);
+          if (saved) sel.value = saved.sound;
+        }
+      })
+      .catch(() => {});
   }
 
   init();
