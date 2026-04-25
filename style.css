@@ -174,15 +174,16 @@ body {
 
 .circle-name {
   margin-top: 10px;
-  font-size: .78rem;
-  font-weight: 600;
-  color: rgba(226,232,240,.65);
+  font-size: .92rem;
+  font-weight: 700;
+  color: var(--text);
   text-align: center;
   max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 0 4px;
+  letter-spacing: -.2px;
 }
 
 /* ── Tab bar ── */

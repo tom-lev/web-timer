@@ -292,6 +292,27 @@ const SoundEngine = (() => {
   return { preview, startLoop, stopLoop, isLooping };
 })();
 
+// ── Vibration Engine ───────────────────────────────────────────────────────
+const VibrationEngine = (() => {
+  const loops = {};
+  const PATTERN  = [300, 120, 300, 120, 300, 700]; // three bursts + pause
+  const CYCLE_MS = PATTERN.reduce((a, b) => a + b, 0) + 50;
+
+  function start(timerId) {
+    if (!navigator.vibrate) return;
+    stop(timerId);
+    navigator.vibrate(PATTERN);
+    loops[timerId] = setInterval(() => navigator.vibrate(PATTERN), CYCLE_MS);
+  }
+
+  function stop(timerId) {
+    if (loops[timerId] != null) { clearInterval(loops[timerId]); delete loops[timerId]; }
+    try { navigator.vibrate(0); } catch (_) {}
+  }
+
+  return { start, stop };
+})();
+
 // ── Web Worker ────────────────────────────────────────────────────────────
 const worker = new Worker('./timer-worker.js');
 
@@ -454,6 +475,7 @@ const App = (() => {
   function deleteTimer(id) {
     worker.postMessage({ cmd: 'stop', id });
     SoundEngine.stopLoop(id);
+    VibrationEngine.stop(id);
     delete timers[id];
     document.querySelector(`.timer-circle[data-id="${id}"]`)?.remove();
     writeSaved(loadSaved().filter(t => t.id !== id));
@@ -488,6 +510,7 @@ const App = (() => {
     const t = timers[id];
     if (!t || t.state !== 'done') return;
     SoundEngine.stopLoop(id);
+    VibrationEngine.stop(id);
     worker.postMessage({ cmd: 'stop', id });
     t.remaining = t.total;
     t.overtime  = 0;
@@ -580,6 +603,7 @@ const App = (() => {
       t.state = 'done';
       renderCircleFace(data.id);
       SoundEngine.startLoop(data.id, t.sound);
+      VibrationEngine.start(data.id);
       msRefresh();
       showToast(`"${t.name}" finished!`, 'success');
       showTimerNotification(data.id, t.name);
