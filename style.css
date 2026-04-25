@@ -111,6 +111,7 @@ body {
 }
 
 .timer-circle:active { transform: scale(.92); }
+.timer-circle.long-pressing { opacity: .7; transition: opacity .15s ease; }
 
 .timer-circle.running .circle-svg {
   filter: drop-shadow(0 0 10px rgba(108,99,255,.6));
@@ -464,29 +465,6 @@ body {
 .empty-home p { font-size: 1rem; line-height: 1.6; }
 .empty-home strong { color: var(--text); }
 
-/* ── Circle options button — floats inside circle-wrap ── */
-.circle-options {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 28px;
-  height: 28px;
-  background: rgba(255,255,255,.15);
-  border: 1px solid rgba(255,255,255,.2);
-  border-radius: 50%;
-  color: rgba(255,255,255,.9);
-  font-size: 1.1rem;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background var(--transition), border-color var(--transition);
-  z-index: 2;
-  -webkit-tap-highlight-color: transparent;
-}
-.circle-options:hover  { background: rgba(255,255,255,.28); }
-.circle-options:active { transform: scale(.88); }
 
 /* ── Action sheet ── */
 .sheet-overlay {

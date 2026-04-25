@@ -707,11 +707,28 @@ const App = (() => {
           <div class="circle-time"  id="display-${id}">${formatTime(timer.total)}</div>
           <div class="circle-state" id="state-${id}">▶</div>
         </div>
-        <button class="circle-options" onclick="App.showOptions(${id}, event)">⋮</button>
       </div>
       <div class="circle-name">${timer.name}</div>
     `;
-    card.addEventListener('click', () => toggleTimer(id));
+
+    // Short tap → toggle; long press → options sheet
+    let lpTimer = null, lpFired = false;
+    const lpStart = e => {
+      lpFired = false;
+      lpTimer = setTimeout(() => {
+        lpFired = true;
+        showOptions(id, e);
+      }, 480);
+    };
+    const lpCancel = () => clearTimeout(lpTimer);
+    const lpMove   = () => { clearTimeout(lpTimer); lpFired = true; };
+    card.addEventListener('touchstart',  lpStart,  { passive: true });
+    card.addEventListener('touchend',    lpCancel, { passive: true });
+    card.addEventListener('touchmove',   lpMove,   { passive: true });
+    card.addEventListener('mousedown',   lpStart);
+    card.addEventListener('mouseup',     lpCancel);
+    card.addEventListener('contextmenu', e => e.preventDefault());
+    card.addEventListener('click', () => { if (!lpFired) toggleTimer(id); });
     grid.appendChild(card);
   }
 
