@@ -185,12 +185,29 @@ class DrumPicker {
 // ── Sound Engine ───────────────────────────────────────────────────────────
 const SoundEngine = (() => {
   let ctx = null;
+  let masterNode = null; // all sources connect here → compressor → destination
 
   function getCtx() {
-    if (!ctx || ctx.state === 'closed') ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!ctx || ctx.state === 'closed') {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // Loudness maximizer: boost gain then hard-limit to prevent clipping
+      const gain = ctx.createGain();
+      gain.gain.value = 3.0;
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -6;
+      comp.knee.value      = 0;
+      comp.ratio.value     = 20;
+      comp.attack.value    = 0.001;
+      comp.release.value   = 0.05;
+      gain.connect(comp);
+      comp.connect(ctx.destination);
+      masterNode = gain;
+    }
     if (ctx.state === 'suspended') ctx.resume();
     return ctx;
   }
+
+  function getDest() { getCtx(); return masterNode; }
 
   function tone(freq, startAt, duration, type = 'sine', peakGain = 0.38) {
     const c = getCtx();
@@ -202,7 +219,7 @@ const SoundEngine = (() => {
     gain.gain.linearRampToValueAtTime(peakGain, c.currentTime + startAt + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + startAt + duration);
     osc.connect(gain);
-    gain.connect(c.destination);
+    gain.connect(getDest());
     osc.start(c.currentTime + startAt);
     osc.stop(c.currentTime + startAt + duration + 0.05);
   }
@@ -249,7 +266,7 @@ const SoundEngine = (() => {
       const c = getCtx();
       const src = c.createBufferSource();
       src.buffer = buffer;
-      src.connect(c.destination);
+      src.connect(getDest());
       src.start(0);
     } catch (e) { console.warn('Custom sound preview failed:', soundKey, e); }
   }
@@ -268,7 +285,7 @@ const SoundEngine = (() => {
       const src = c.createBufferSource();
       src.buffer = buffer;
       src.loop = true;
-      src.connect(c.destination);
+      src.connect(getDest());
       src.start(0);
       customSources[timerId] = src;
     } catch (e) {
