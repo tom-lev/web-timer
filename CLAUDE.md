@@ -60,3 +60,25 @@ Active (in-memory) timers add: `{ remaining, state, intervalId, workerRef }`.
 ## CSS Design Tokens
 
 Color palette is defined via CSS custom properties on `:root` in `style.css`. Primary accent is `#6c63ff` (purple). Timer circle colors cycle through an 8-color palette via `nextColor()` in `app.js`.
+
+## Development Roadmap (Priority Order)
+
+1. **Timer repeat/loop mode** — Allow a timer to auto-restart when done. Critical for workouts, Pomodoro, and interval training. Add a `repeat` boolean to the saved-timer schema and handle the `done` event in `app.js` by re-triggering `start`.
+
+2. **Countdown warning sounds** — Play a short alert at configurable thresholds before the timer ends (e.g., 1 min, 30 sec, 10 sec remaining). Hook into the `tick` handler in `app.js` and trigger a one-shot sound via `SoundEngine`.
+
+3. **Volume control** — Global (or per-timer) volume slider. `SoundEngine` already uses a `GainNode`; expose its `.gain.value` through a settings UI.
+
+4. **Accessibility pass** — Add `aria-label` attributes to circle cards and action buttons, enable keyboard navigation (Space to start/pause, Delete to remove), and ensure the drum picker is operable via arrow keys.
+
+5. **Export / Import saved timers** — Let users download their `mt-saved` array as JSON and re-import it. Useful for backup and sharing presets between devices.
+
+6. **Custom color picker per timer** — Currently `nextColor()` assigns colors automatically. Add a color swatch selector in the new-timer form so users can choose their own color, stored in the saved-timer schema.
+
+7. **Fullscreen focus mode** — Single-timer expanded view (tap a circle to enter). Hides all other timers and shows a large countdown display. Useful when only one timer matters.
+
+8. **Light theme** — Add a `data-theme="light"` variant with inverted CSS custom properties. Respect `prefers-color-scheme` by default with a manual toggle in settings.
+
+9. **Timer groups / categories** — Allow saved timers to be tagged or grouped (e.g., "Cooking", "Workout"). Rendered as collapsible sections in the saved-timers list. Requires a `group` field in the saved-timer schema.
+
+10. **Timer history log** — Record each timer completion (name, timestamp, duration) in `localStorage`. Show a simple history sheet accessible from the home screen.
