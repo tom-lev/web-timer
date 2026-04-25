@@ -89,6 +89,19 @@
       </div>
     </div>
 
+    <div id="t-once-row" class="form-row">
+      <label class="toggle-row" for="t-once">
+        <div>
+          <div class="toggle-label-text">One-time</div>
+          <div class="toggle-label-sub">Run once, don't save</div>
+        </div>
+        <div class="toggle-wrap">
+          <input type="checkbox" id="t-once" class="toggle-input" />
+          <span class="toggle-thumb"></span>
+        </div>
+      </label>
+    </div>
+
     <button id="btn-save" class="btn-add" onclick="App.saveNewTimer()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       Save Timer
@@ -114,6 +127,6 @@
 </nav>
 
 <div id="toast-container"></div>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

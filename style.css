@@ -83,49 +83,47 @@ body {
 .circles-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  padding: 16px;
+  gap: 8px 12px;
+  padding: 16px 12px;
   flex: 1;
   align-content: start;
 }
 
-/* ── Timer circle card ── */
+/* ── Timer circle card — clean circles, no rectangular frame ── */
 .timer-circle {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18px 10px 14px;
-  border-radius: 22px;
-  background: var(--surface);
-  border: 1.5px solid var(--border);
+  padding: 10px 6px 8px;
+  background: none;
+  border: none;
   cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   position: relative;
-  transition: transform .12s ease, border-color .2s ease, box-shadow .2s ease;
+  transition: transform .12s ease;
   animation: circleIn .22s ease;
 }
 
 @keyframes circleIn {
-  from { opacity: 0; transform: scale(.92) translateY(8px); }
+  from { opacity: 0; transform: scale(.88) translateY(10px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-.timer-circle:active { transform: scale(.93); }
+.timer-circle:active { transform: scale(.92); }
 
-.timer-circle.running {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent), 0 8px 24px rgba(108,99,255,.18);
+.timer-circle.running .circle-svg {
+  filter: drop-shadow(0 0 10px rgba(108,99,255,.6));
+  transition: filter .3s ease;
 }
 
-.timer-circle.done {
-  border-color: var(--green);
-  animation: done-pulse 1s ease infinite;
+.timer-circle.done .circle-svg {
+  animation: done-glow 1s ease infinite;
 }
 
-@keyframes done-pulse {
-  0%, 100% { box-shadow: 0 0 0 1px var(--green); border-color: var(--green); }
-  50%       { box-shadow: 0 0 0 6px rgba(74,222,128,.25); border-color: var(--green); }
+@keyframes done-glow {
+  0%, 100% { filter: drop-shadow(0 0 5px rgba(74,222,128,.45)); }
+  50%       { filter: drop-shadow(0 0 18px rgba(74,222,128,.9)); }
 }
 
 /* ── Circle SVG + overlay ── */
@@ -134,6 +132,8 @@ body {
   width: 130px;
   height: 130px;
 }
+
+.ring-face { fill: #0f1117; }
 
 .circle-svg {
   display: block;
@@ -173,17 +173,16 @@ body {
 }
 
 .circle-name {
-  margin-top: 10px;
-  font-size: .92rem;
+  margin-top: 9px;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--text);
   text-align: center;
-  max-width: 130px;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 0 4px;
-  letter-spacing: -.2px;
+  letter-spacing: -.3px;
 }
 
 /* ── Tab bar ── */
@@ -439,18 +438,18 @@ body {
 .empty-home p { font-size: 1rem; line-height: 1.6; }
 .empty-home strong { color: var(--text); }
 
-/* ── Circle options button ── */
+/* ── Circle options button — floats inside circle-wrap ── */
 .circle-options {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 28px;
-  height: 28px;
-  background: rgba(255,255,255,.07);
+  top: 5px;
+  right: 5px;
+  width: 26px;
+  height: 26px;
+  background: rgba(0,0,0,.5);
   border: none;
-  border-radius: 8px;
-  color: var(--muted);
-  font-size: 1.15rem;
+  border-radius: 50%;
+  color: rgba(255,255,255,.55);
+  font-size: 1rem;
   line-height: 1;
   cursor: pointer;
   display: flex;
@@ -459,8 +458,9 @@ body {
   transition: background var(--transition), color var(--transition);
   z-index: 2;
   -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(4px);
 }
-.circle-options:hover  { background: rgba(255,255,255,.14); color: var(--text); }
+.circle-options:hover  { background: rgba(0,0,0,.75); color: var(--text); }
 .circle-options:active { transform: scale(.88); }
 
 /* ── Action sheet ── */
@@ -717,4 +717,71 @@ body {
 @keyframes toastIn {
   from { opacity: 0; transform: translateX(16px); }
   to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── One-time toggle ── */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  gap: 12px;
+}
+
+.toggle-label-text {
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.toggle-label-sub {
+  font-size: .75rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.toggle-wrap {
+  position: relative;
+  width: 46px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.toggle-input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-thumb {
+  position: absolute;
+  inset: 0;
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  transition: background .2s ease, border-color .2s ease;
+}
+
+.toggle-thumb::after {
+  content: '';
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  background: var(--muted);
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: transform .2s ease, background .2s ease;
+}
+
+.toggle-input:checked + .toggle-thumb {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.toggle-input:checked + .toggle-thumb::after {
+  transform: translateX(18px);
+  background: #fff;
 }
