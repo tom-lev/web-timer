@@ -634,6 +634,35 @@ body {
   align-self: center;
 }
 
+.drum-col-labels {
+  position: absolute;
+  top: 10px;
+  left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.drum-col-labels span:not(.drum-lbl-sep) {
+  flex: 1;
+  text-align: center;
+  font-size: .65rem;
+  font-weight: 700;
+  color: rgba(255,255,255,.3);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+}
+
+/* Invisible spacer that mirrors the real separator's width so labels align */
+.drum-lbl-sep {
+  font-size: 1.8rem;
+  font-weight: 800;
+  padding: 0 2px;
+  flex-shrink: 0;
+  opacity: 0;
+}
+
 /* ── Edit mode banner ── */
 .edit-banner {
   display: flex;

@@ -46,7 +46,7 @@ function playTick() {
   } catch (_) {}
 }
 
-// ── Drum Picker (3D cylinder) ──────────────────────────────────────────────
+// ── Drum Picker (3D cylinder, circular) ───────────────────────────────────
 class DrumPicker {
   constructor(el, values, initial = 0) {
     this.el       = el;
@@ -54,14 +54,14 @@ class DrumPicker {
     this.ITEM_H   = 44;
     this.RADIUS   = 130;
     this.STEP_DEG = (this.ITEM_H / this.RADIUS) * (180 / Math.PI); // ≈ 19.4°
-    this.scrollY  = Math.max(0, Math.min(initial, values.length - 1)) * this.ITEM_H;
-    this.selected = Math.round(this.scrollY / this.ITEM_H);
+    this.scrollY  = initial * this.ITEM_H;
+    this.selected = initial;
     this.dragging    = false;
     this.startY      = 0;
     this.startScroll = 0;
     this.lastY    = 0;
     this.velocity = 0;
-    this.lastSel  = this.selected;
+    this.lastSel  = initial;
     this._build();
     this._bind();
     this._render();
@@ -77,42 +77,59 @@ class DrumPicker {
     });
   }
 
-  _clampScroll(y) {
-    return Math.max(0, Math.min((this.values.length - 1) * this.ITEM_H, y));
+  // Wrap index into [0, n)
+  _wrap(i) {
+    const n = this.values.length;
+    return ((i % n) + n) % n;
   }
 
   _render() {
+    const n      = this.values.length;
     const selF   = this.scrollY / this.ITEM_H;
-    const newSel = Math.max(0, Math.min(this.values.length - 1, Math.round(selF)));
+    const rawSel = Math.round(selF);
+    const newSel = this._wrap(rawSel);
     if (newSel !== this.lastSel) { playTick(); this.lastSel = newSel; }
     this.selected = newSel;
 
     const STEP_RAD = this.ITEM_H / this.RADIUS;
-    for (let i = 0; i < this.items.length; i++) {
-      const dist     = selF - i;
-      const angleDeg = dist * this.STEP_DEG;
-      const cos      = Math.cos(dist * STEP_RAD);
+    const VISIBLE  = 4; // items rendered each side of center
 
-      if (Math.abs(angleDeg) >= 88) {
-        this.items[i].style.opacity = '0';
-        continue;
-      }
+    for (const item of this.items) { item.style.opacity = '0'; item.classList.remove('selected'); }
 
-      this.items[i].style.opacity   = String(Math.max(0, cos * cos * cos).toFixed(3));
-      this.items[i].style.transform = `rotateX(${angleDeg.toFixed(2)}deg)`;
-      this.items[i].classList.toggle('selected', i === newSel);
+    for (let offset = -VISIBLE; offset <= VISIBLE; offset++) {
+      const posIdx = rawSel + offset;
+      const valIdx = this._wrap(posIdx);
+      const dist   = selF - posIdx;   // positive = item is above center
+      const deg    = dist * this.STEP_DEG;
+      if (Math.abs(deg) >= 88) continue;
+      const cos = Math.cos(dist * STEP_RAD);
+      const item = this.items[valIdx];
+      item.style.opacity   = String(Math.max(0, cos * cos * cos).toFixed(3));
+      item.style.transform = `rotateX(${deg.toFixed(2)}deg)`;
+      item.classList.toggle('selected', valIdx === newSel);
     }
   }
 
   _snap() {
-    this.scrollY = this._clampScroll(Math.round(this.scrollY / this.ITEM_H) * this.ITEM_H);
+    const n       = this.values.length;
+    const snapRaw = Math.round(this.scrollY / this.ITEM_H);
+    const snapNorm = this._wrap(snapRaw);
+    this.scrollY  = snapRaw * this.ITEM_H;
+    this.selected = snapNorm;
     this.el.classList.add('snapping');
     this._render();
-    setTimeout(() => this.el.classList.remove('snapping'), 300);
+    setTimeout(() => {
+      this.el.classList.remove('snapping');
+      // Normalize scrollY so it stays close to 0 after many wraps
+      this.scrollY = snapNorm * this.ITEM_H;
+      this.lastSel = snapNorm;
+    }, 300);
   }
 
   _bind() {
     const onStart = y => {
+      // Normalize before each drag starts
+      this.scrollY = this.selected * this.ITEM_H;
       this.dragging    = true;
       this.startY      = y;
       this.startScroll = this.scrollY;
@@ -123,14 +140,15 @@ class DrumPicker {
       if (!this.dragging) return;
       this.velocity = y - this.lastY;
       this.lastY    = y;
-      this.scrollY  = this._clampScroll(this.startScroll + (y - this.startY));
+      // Drag UP → scrollY increases → higher index selected
+      this.scrollY = this.startScroll - (y - this.startY);
       this._render();
     };
     const onEnd = () => {
       if (!this.dragging) return;
       this.dragging = false;
       if (Math.abs(this.velocity) > 3) {
-        this.scrollY = this._clampScroll(this.scrollY + this.velocity * 5);
+        this.scrollY -= this.velocity * 5;
         this._render();
         setTimeout(() => this._snap(), 60);
       } else {
@@ -146,7 +164,8 @@ class DrumPicker {
     window.addEventListener('mouseup',     () => onEnd());
     this.el.addEventListener('wheel', e => {
       e.preventDefault();
-      this.scrollY = this._clampScroll(this.scrollY + Math.sign(e.deltaY) * this.ITEM_H);
+      // Scroll up (deltaY < 0) → higher value
+      this.scrollY = this.selected * this.ITEM_H - Math.sign(e.deltaY) * this.ITEM_H;
       this._snap();
     }, { passive: false });
   }
