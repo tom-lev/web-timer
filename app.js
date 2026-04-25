@@ -450,6 +450,26 @@ const App = (() => {
     switchPage('home');
   }
 
+  // ── Run once (no save, auto-start, auto-delete on finish) ─────────────────
+  function runOnceTimer() {
+    const name    = $('timer-name').value.trim() || 'Timer';
+    const hours   = drums.h.getValue();
+    const minutes = drums.m.getValue();
+    const seconds = drums.s.getValue();
+    const sound   = $('t-sound').value;
+    const total   = hmsToMs(hours, minutes, seconds);
+    if (total <= 0) { showToast('Set a duration > 0', 'error'); return; }
+
+    const id    = Date.now();
+    const color = nextColor();
+    timers[id] = { id, name, color, sound, total, remaining: total, state: 'idle', overtime: 0, once: true };
+    renderCircle(id);
+    $('timer-name').value = '';
+    switchPage('home');
+    // Auto-start immediately
+    requestAnimationFrame(() => toggleTimer(id));
+  }
+
   // ── Action sheet (from ⋮ button) ─────────────────────────────────────────
   function showOptions(id, e) {
     e.stopPropagation();
@@ -464,9 +484,14 @@ const App = (() => {
     sheet.innerHTML = `
       <div class="sheet-handle"></div>
       <div class="sheet-title">${t.name}</div>
+      ${!t.once ? `
       <button class="sheet-btn" id="_edit">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         Edit
+      </button>` : ''}
+      <button class="sheet-btn" id="_reset">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        Reset
       </button>
       <button class="sheet-btn sheet-btn-danger" id="_delete">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
@@ -483,9 +508,24 @@ const App = (() => {
       setTimeout(() => overlay.remove(), 250);
     };
     overlay.addEventListener('click', ev => { if (ev.target === overlay) close(); });
-    sheet.querySelector('#_edit').onclick   = () => { close(); startEditing(id); };
+    if (!t.once) sheet.querySelector('#_edit').onclick = () => { close(); startEditing(id); };
+    sheet.querySelector('#_reset').onclick  = () => { close(); resetTimer(id); };
     sheet.querySelector('#_delete').onclick = () => { close(); deleteTimer(id); };
     sheet.querySelector('#_cancel').onclick = close;
+  }
+
+  // ── Reset timer ───────────────────────────────────────────────────────────
+  function resetTimer(id) {
+    const t = timers[id];
+    if (!t) return;
+    worker.postMessage({ cmd: 'stop', id });
+    SoundEngine.stopLoop(id);
+    VibrationEngine.stop(id);
+    t.remaining = t.total;
+    t.overtime  = 0;
+    t.state     = 'idle';
+    renderCircleFace(id);
+    msRefresh();
   }
 
   // ── Delete timer ──────────────────────────────────────────────────────────
@@ -529,6 +569,13 @@ const App = (() => {
     SoundEngine.stopLoop(id);
     VibrationEngine.stop(id);
     worker.postMessage({ cmd: 'stop', id });
+    if (t.once) {
+      delete timers[id];
+      document.querySelector(`.timer-circle[data-id="${id}"]`)?.remove();
+      checkEmpty();
+      msRefresh();
+      return;
+    }
     t.remaining = t.total;
     t.overtime  = 0;
     t.state = 'idle';
@@ -646,9 +693,9 @@ const App = (() => {
     card.className  = 'timer-circle';
     card.dataset.id = id;
     card.innerHTML  = `
-      <button class="circle-options" onclick="App.showOptions(${id}, event)">⋮</button>
       <div class="circle-wrap">
         <svg class="circle-svg" width="130" height="130" viewBox="0 0 130 130">
+          <circle class="ring-face" cx="65" cy="65" r="50"/>
           <circle class="ring-bg"   cx="65" cy="65" r="${RING_R}" stroke-width="9"/>
           <circle class="ring-fill" cx="65" cy="65" r="${RING_R}" stroke-width="9"
                   id="ring-${id}"
@@ -663,7 +710,25 @@ const App = (() => {
       </div>
       <div class="circle-name">${timer.name}</div>
     `;
-    card.addEventListener('click', () => toggleTimer(id));
+
+    // Short tap → toggle; long press → options sheet
+    let lpTimer = null, lpFired = false;
+    const lpStart = e => {
+      lpFired = false;
+      lpTimer = setTimeout(() => {
+        lpFired = true;
+        showOptions(id, e);
+      }, 480);
+    };
+    const lpCancel = () => clearTimeout(lpTimer);
+    const lpMove   = () => { clearTimeout(lpTimer); lpFired = true; };
+    card.addEventListener('touchstart',  lpStart,  { passive: true });
+    card.addEventListener('touchend',    lpCancel, { passive: true });
+    card.addEventListener('touchmove',   lpMove,   { passive: true });
+    card.addEventListener('mousedown',   lpStart);
+    card.addEventListener('mouseup',     lpCancel);
+    card.addEventListener('contextmenu', e => e.preventDefault());
+    card.addEventListener('click', () => { if (!lpFired) toggleTimer(id); });
     grid.appendChild(card);
   }
 
@@ -792,7 +857,7 @@ const App = (() => {
   }
 
   init();
-  return { saveNewTimer, deleteTimer, toggleTimer, switchPage, showOptions, cancelEdit, dismissAlarm };
+  return { saveNewTimer, runOnceTimer, deleteTimer, resetTimer, toggleTimer, switchPage, showOptions, cancelEdit, dismissAlarm };
 })();
 
 // ── SW message listener (for notification Stop action) ─────────────────────

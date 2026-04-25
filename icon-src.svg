@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#7b74ff"/>
+      <stop offset="100%" stop-color="#4a44b0"/>
+    </linearGradient>
+    <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fde047"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- Hourglass full silhouette (white) -->
+  <path fill="white" d="
+    M 86,64 L 426,64 L 426,120
+    L 268,250 L 268,262
+    L 426,392 L 426,448
+    L 86,448 L 86,392
+    L 244,262 L 244,250
+    L 86,120 Z
+  "/>
+
+  <!-- Top glass interior — cut back to bg colour -->
+  <polygon fill="url(#bg)" points="110,120 402,120 266,250 246,250"/>
+
+  <!-- Bottom glass interior — bg colour first (will be partly covered by sand) -->
+  <polygon fill="url(#bg)" points="246,262 266,262 402,392 110,392"/>
+
+  <!-- Sand accumulated in bottom glass (~65% full) -->
+  <!-- sand level y ≈ 308  (65% up from bottom inner edge y=392) -->
+  <polygon fill="url(#sand)" points="199,308 313,308 402,392 110,392"/>
+
+  <!-- Falling sand stream -->
+  <line x1="256" y1="262" x2="256" y2="308"
+        stroke="#fde047" stroke-width="11" stroke-linecap="round"/>
+
+  <!-- Last grains in top glass (tiny wedge near waist) -->
+  <polygon fill="url(#sand)" points="246,236 266,236 266,250 246,250"/>
+</svg>
