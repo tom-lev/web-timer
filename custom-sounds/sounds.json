@@ -1,5 +1,9 @@
 [
   { "name": "האורז מוכן", "file": "האורז_מוכן.mp3" },
   { "name": "הדג מוכן", "file": "הדג_מוכן_.mp3" },
-  { "name": "הדג שבתנור אקפלה", "file": "הדג שבתנור אקפלה.mp3" }
+  { "name": "הדג שבתנור אקפלה", "file": "הדג שבתנור אקפלה.mp3" },
+  { "name": "Final Bell", "file": "Final Bell.mp3" },
+  { "name": "Alert Sound Loop", "file": "alert-sound-loop.mp3" },
+  { "name": "Message Alert", "file": "message-alert.mp3" },
+  { "name": "Tick Tock Clock Timer", "file": "tick-tock-clock-timer.wav" }
 ]
