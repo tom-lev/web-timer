@@ -391,7 +391,6 @@ const App = (() => {
     $('btn-save').textContent = '✓ Update Timer';
     $('edit-banner').style.display  = 'flex';
     $('edit-banner-name').textContent = saved.name;
-    $('t-once-row').style.display = 'none';
     switchPage('new');
   }
 
@@ -400,8 +399,6 @@ const App = (() => {
     $('btn-save').textContent = 'Save Timer';
     $('edit-banner').style.display = 'none';
     $('timer-name').value = '';
-    $('t-once-row').style.display = '';
-    $('t-once').checked = false;
   }
 
   // ── Add / Update timer ────────────────────────────────────────────────────
@@ -439,23 +436,38 @@ const App = (() => {
       return;
     }
 
-    const once  = $('t-once').checked;
     const id    = Date.now();
     const color = nextColor();
+    const saved = loadSaved();
+    saved.push({ id, name, hours, minutes, seconds, sound, color });
+    writeSaved(saved);
 
-    if (!once) {
-      const saved = loadSaved();
-      saved.push({ id, name, hours, minutes, seconds, sound, color });
-      writeSaved(saved);
-    }
-
-    timers[id] = { id, name, color, sound, total, remaining: total, state: 'idle', overtime: 0, once };
+    timers[id] = { id, name, color, sound, total, remaining: total, state: 'idle', overtime: 0 };
     renderCircle(id);
-    if (!once) renderSavedList();
-    showToast(once ? `"${name}" ready` : `"${name}" saved`);
+    renderSavedList();
+    showToast(`"${name}" saved`);
     $('timer-name').value = '';
-    $('t-once').checked = false;
     switchPage('home');
+  }
+
+  // ── Run once (no save, auto-start, auto-delete on finish) ─────────────────
+  function runOnceTimer() {
+    const name    = $('timer-name').value.trim() || 'Timer';
+    const hours   = drums.h.getValue();
+    const minutes = drums.m.getValue();
+    const seconds = drums.s.getValue();
+    const sound   = $('t-sound').value;
+    const total   = hmsToMs(hours, minutes, seconds);
+    if (total <= 0) { showToast('Set a duration > 0', 'error'); return; }
+
+    const id    = Date.now();
+    const color = nextColor();
+    timers[id] = { id, name, color, sound, total, remaining: total, state: 'idle', overtime: 0, once: true };
+    renderCircle(id);
+    $('timer-name').value = '';
+    switchPage('home');
+    // Auto-start immediately
+    requestAnimationFrame(() => toggleTimer(id));
   }
 
   // ── Action sheet (from ⋮ button) ─────────────────────────────────────────
@@ -557,6 +569,13 @@ const App = (() => {
     SoundEngine.stopLoop(id);
     VibrationEngine.stop(id);
     worker.postMessage({ cmd: 'stop', id });
+    if (t.once) {
+      delete timers[id];
+      document.querySelector(`.timer-circle[data-id="${id}"]`)?.remove();
+      checkEmpty();
+      msRefresh();
+      return;
+    }
     t.remaining = t.total;
     t.overtime  = 0;
     t.state = 'idle';
@@ -821,7 +840,7 @@ const App = (() => {
   }
 
   init();
-  return { saveNewTimer, deleteTimer, resetTimer, toggleTimer, switchPage, showOptions, cancelEdit, dismissAlarm };
+  return { saveNewTimer, runOnceTimer, deleteTimer, resetTimer, toggleTimer, switchPage, showOptions, cancelEdit, dismissAlarm };
 })();
 
 // ── SW message listener (for notification Stop action) ─────────────────────

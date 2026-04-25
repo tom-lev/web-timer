@@ -2,13 +2,14 @@
 // Caches the app shell for offline use and stays alive to support
 // the Media Session notification.
 
-const CACHE_NAME = 'multitimer-v12';
+const CACHE_NAME = 'multitimer-v13';
 
 // App shell: everything needed to run offline
 const PRECACHE = [
   './',
   './index.html',
-  './app.js?v=9',
+  './app.js?v=10',
+  './style.css?v=2',
   './custom-sounds/sounds.json',
   './style.css',
   './timer-worker.js',
