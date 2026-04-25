@@ -2,13 +2,13 @@
 // Caches the app shell for offline use and stays alive to support
 // the Media Session notification.
 
-const CACHE_NAME = 'multitimer-v5';
+const CACHE_NAME = 'multitimer-v10';
 
 // App shell: everything needed to run offline
 const PRECACHE = [
   './',
   './index.html',
-  './app.js?v=3',
+  './app.js?v=7',
   './style.css',
   './timer-worker.js',
   './manifest.json',
@@ -84,6 +84,24 @@ self.addEventListener('fetch', event => {
           return caches.match('./index.html');
         }
       });
+    })
+  );
+});
+
+// ── Notification click ───────────────────────────────────────────────────────
+self.addEventListener('notificationclick', event => {
+  const { action, notification } = event;
+  const id = notification.data?.id;
+  notification.close();
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      if (action === 'stop' && id != null) {
+        clients.forEach(c => c.postMessage({ type: 'STOP_ALARM', id }));
+      }
+      const focused = clients.find(c => 'focus' in c);
+      if (focused) return focused.focus();
+      return self.clients.openWindow('./');
     })
   );
 });
