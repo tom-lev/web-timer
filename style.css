@@ -324,6 +324,93 @@ body {
 .btn-preview:hover { background: var(--border); }
 .btn-preview:active { transform: scale(.93); }
 
+/* ── Sound selector trigger ── */
+.sound-trigger {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  font-size: .95rem;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  transition: background var(--transition), border-color var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.sound-trigger:hover { background: var(--border); }
+.sound-trigger:active { transform: scale(.98); }
+.sound-trigger-label { flex: 1; font-weight: 600; }
+.sound-trigger-chevron { color: var(--muted); flex-shrink: 0; }
+
+/* ── Sound sheet list ── */
+.sound-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 55vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sound-item {
+  width: 100%;
+  padding: 13px 14px;
+  background: var(--surface2);
+  border: 1.5px solid transparent;
+  color: var(--text);
+  border-radius: 13px;
+  font-size: .95rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: background var(--transition), border-color var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.sound-item:hover  { background: var(--border); }
+.sound-item:active { transform: scale(.98); }
+
+.sound-item.selected {
+  border-color: var(--accent);
+  background: rgba(108,99,255,.12);
+}
+
+.sound-item-label { flex: 1; }
+
+.sound-item-check {
+  width: 18px;
+  flex-shrink: 0;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity .15s;
+}
+.sound-item.selected .sound-item-check { opacity: 1; }
+
+.sound-item-preview {
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--transition), color var(--transition);
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+}
+.sound-item-preview:hover  { background: var(--border); color: var(--text); }
+.sound-item-preview:active { transform: scale(.9); }
+
 .btn-row {
   display: flex;
   flex-direction: column;
