@@ -118,7 +118,6 @@ body {
 
 .timer-circle.running .circle-svg {
   filter: drop-shadow(0 0 10px rgba(108,99,255,.6));
-  transition: filter .3s ease;
 }
 
 .timer-circle.done .circle-svg {
@@ -142,6 +141,8 @@ body {
 .circle-svg {
   display: block;
   transform: rotate(-90deg);
+  filter: drop-shadow(0 0 0px transparent);
+  transition: filter .3s ease;
 }
 
 .ring-bg  { fill: none; stroke: var(--surface2); }
@@ -169,6 +170,7 @@ body {
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
+.circle-time.has-hours { font-size: 1.05rem; letter-spacing: -.3px; }
 
 .circle-state {
   font-size: .95rem;

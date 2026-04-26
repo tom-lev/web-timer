@@ -848,7 +848,7 @@ const App = (() => {
                   stroke="${timer.color}"/>
         </svg>
         <div class="circle-inner">
-          <div class="circle-time"  id="display-${id}">${formatTime(timer.total)}</div>
+          <div class="circle-time${formatTime(timer.total).length > 5 ? ' has-hours' : ''}" id="display-${id}">${formatTime(timer.total)}</div>
           <div class="circle-state" id="state-${id}">▶</div>
         </div>
       </div>
@@ -886,11 +886,11 @@ const App = (() => {
     const card    = document.querySelector(`.timer-circle[data-id="${id}"]`);
 
     if (display) {
-      if (t.state === 'done' && t.overtime > 0) {
-        display.textContent = '-' + formatTime(t.overtime);
-      } else {
-        display.textContent = formatTime(t.remaining);
-      }
+      const timeText = (t.state === 'done' && t.overtime > 0)
+        ? '-' + formatTime(t.overtime)
+        : formatTime(t.remaining);
+      display.textContent = timeText;
+      display.classList.toggle('has-hours', timeText.length > 5);
     }
 
     if (ring) {
