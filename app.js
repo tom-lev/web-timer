@@ -187,6 +187,16 @@ const SoundEngine = (() => {
   let ctx = null;
   let masterNode = null; // all sources connect here → compressor → destination
 
+  // Preview state
+  let previewPlaying   = false;
+  let previewTimer     = null;
+  let previewCustomSrc = null;
+  let insidePreview    = false;
+  let previewGains     = [];
+  let previewOscs      = [];
+  const PLAY_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+  const STOP_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>`;
+
   function getCtx() {
     if (!ctx || ctx.state === 'closed') {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -222,6 +232,7 @@ const SoundEngine = (() => {
     gain.connect(getDest());
     osc.start(c.currentTime + startAt);
     osc.stop(c.currentTime + startAt + duration + 0.05);
+    if (insidePreview) { previewGains.push(gain); previewOscs.push(osc); }
   }
 
   const sounds = {
@@ -259,8 +270,52 @@ const SoundEngine = (() => {
     return audioBuffer;
   }
 
+  function setPreviewBtn(playing) {
+    const btn = document.querySelector('.btn-preview');
+    if (btn) btn.innerHTML = playing ? STOP_SVG : PLAY_SVG;
+  }
+
+  function endPreview() {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+    const c = getCtx();
+    previewGains.forEach(g => {
+      try {
+        g.gain.cancelScheduledValues(c.currentTime);
+        g.gain.setTargetAtTime(0, c.currentTime, 0.02);
+      } catch (_) {}
+    });
+    previewOscs.forEach(o => { try { o.stop(c.currentTime + 0.05); } catch (_) {} });
+    previewGains = [];
+    previewOscs  = [];
+    if (previewCustomSrc) {
+      try { previewCustomSrc.stop(); } catch (_) {}
+      previewCustomSrc = null;
+    }
+    previewPlaying = false;
+    setPreviewBtn(false);
+  }
+
   async function preview(soundKey) {
-    if (sounds[soundKey]) { sounds[soundKey](); return; }
+    if (previewPlaying) { endPreview(); return; }
+
+    previewPlaying = true;
+    setPreviewBtn(true);
+
+    if (sounds[soundKey]) {
+      insidePreview = true;
+      sounds[soundKey]();
+      insidePreview = false;
+      const dur = cycleDuration[soundKey] || 2000;
+      previewTimer = setTimeout(() => {
+        previewGains   = [];
+        previewOscs    = [];
+        previewPlaying = false;
+        setPreviewBtn(false);
+      }, dur + 100);
+      return;
+    }
+
     try {
       const buffer = await loadCustomBuffer(soundKey);
       const c = getCtx();
@@ -268,7 +323,17 @@ const SoundEngine = (() => {
       src.buffer = buffer;
       src.connect(getDest());
       src.start(0);
-    } catch (e) { console.warn('Custom sound preview failed:', soundKey, e); }
+      previewCustomSrc = src;
+      src.onended = () => {
+        previewCustomSrc = null;
+        previewPlaying   = false;
+        setPreviewBtn(false);
+      };
+    } catch (e) {
+      console.warn('Custom sound preview failed:', soundKey, e);
+      previewPlaying = false;
+      setPreviewBtn(false);
+    }
   }
 
   async function startLoop(timerId, soundKey) {
@@ -597,6 +662,9 @@ const App = (() => {
     if (t.state === 'done') {
       dismissAlarm(id);
     } else if (t.state === 'running') {
+      t.state = 'paused';
+      renderCircleFace(id);
+      msRefresh();
       worker.postMessage({ cmd: 'pause', id });
     } else {
       // idle or paused → start / resume
@@ -675,10 +743,12 @@ const App = (() => {
       t.overtime = data.elapsed;
       renderCircleFace(data.id);
     } else if (data.type === 'paused') {
-      t.remaining = data.remaining;
-      t.state = 'paused';
-      renderCircleFace(data.id);
-      msRefresh();
+      if (t.state !== 'running') {
+        t.remaining = data.remaining;
+        t.state = 'paused';
+        renderCircleFace(data.id);
+        msRefresh();
+      }
     }
   };
 
