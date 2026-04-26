@@ -74,19 +74,13 @@
     </div>
 
     <div class="form-row">
-      <label class="form-label" for="t-sound">Alarm Sound</label>
-      <div class="sound-row">
-        <select id="t-sound" class="form-input form-select">
-          <option value="chime">🎵 Chime</option>
-          <option value="bell">🔔 Bell</option>
-          <option value="alarm">🚨 Alarm</option>
-          <option value="beep">📳 Beep</option>
-          <option value="pulse">💥 Pulse</option>
-        </select>
-        <button class="btn-preview" onclick="SoundEngine.preview($('t-sound').value)" title="Preview sound">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        </button>
-      </div>
+      <label class="form-label">Alarm Sound</label>
+      <input type="hidden" id="t-sound" value="chime">
+      <button type="button" class="sound-trigger" onclick="SoundSelector.open()">
+        <span id="sound-trigger-icon">🎵</span>
+        <span class="sound-trigger-label" id="sound-trigger-label">Chime</span>
+        <svg class="sound-trigger-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
     </div>
 
     <div class="btn-row">
@@ -106,6 +100,15 @@
     <div id="saved-items"></div>
   </div>
 </section>
+
+<!-- ── Sound selector bottom sheet ── -->
+<div class="sheet-overlay" id="sound-sheet-overlay" style="display:none" onclick="SoundSelector.close()">
+  <div class="action-sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Alarm Sound</div>
+    <div id="sound-list" class="sound-list"></div>
+  </div>
+</div>
 
 <!-- ── Bottom tab bar ── -->
 <nav class="tab-bar">

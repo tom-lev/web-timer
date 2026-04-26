@@ -194,6 +194,7 @@ const SoundEngine = (() => {
   let insidePreview    = false;
   let previewGains     = [];
   let previewOscs      = [];
+  let activePreviewBtn = null;
   const PLAY_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
   const STOP_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>`;
 
@@ -271,8 +272,7 @@ const SoundEngine = (() => {
   }
 
   function setPreviewBtn(playing) {
-    const btn = document.querySelector('.btn-preview');
-    if (btn) btn.innerHTML = playing ? STOP_SVG : PLAY_SVG;
+    if (activePreviewBtn) activePreviewBtn.innerHTML = playing ? STOP_SVG : PLAY_SVG;
   }
 
   function endPreview() {
@@ -294,9 +294,11 @@ const SoundEngine = (() => {
     }
     previewPlaying = false;
     setPreviewBtn(false);
+    activePreviewBtn = null;
   }
 
-  async function preview(soundKey) {
+  async function preview(soundKey, btn) {
+    activePreviewBtn = btn || null;
     if (previewPlaying) { endPreview(); return; }
 
     previewPlaying = true;
@@ -371,7 +373,79 @@ const SoundEngine = (() => {
 
   function isLooping(timerId) { return loops[timerId] != null || timerId in customSources; }
 
-  return { preview, startLoop, stopLoop, isLooping };
+  return { preview, startLoop, stopLoop, isLooping, endPreview };
+})();
+
+// ── Sound Selector ─────────────────────────────────────────────────────────
+const SoundSelector = (() => {
+  const BUILT_INS = [
+    { key: 'chime', icon: '🎵', label: 'Chime' },
+    { key: 'bell',  icon: '🔔', label: 'Bell'  },
+    { key: 'alarm', icon: '🚨', label: 'Alarm' },
+    { key: 'beep',  icon: '📳', label: 'Beep'  },
+    { key: 'pulse', icon: '💥', label: 'Pulse' },
+  ];
+  const PLAY_SVG  = `<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+  const CHECK_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+  let allSounds = [...BUILT_INS];
+
+  function renderList() {
+    const list = document.getElementById('sound-list');
+    if (!list) return;
+    const current = document.getElementById('t-sound')?.value || 'chime';
+    list.innerHTML = allSounds.map(({ key, icon, label }) => `
+      <div class="sound-item${key === current ? ' selected' : ''}" role="button" tabindex="0"
+           onclick="SoundSelector.select('${key}')"
+           onkeydown="if(event.key==='Enter'||event.key===' ')SoundSelector.select('${key}')">
+        <span>${icon}</span>
+        <span class="sound-item-label">${label}</span>
+        <button class="sound-item-preview" onclick="event.stopPropagation();SoundEngine.preview('${key}',this)" title="Preview ${label}">
+          ${PLAY_SVG}
+        </button>
+        <span class="sound-item-check">${CHECK_SVG}</span>
+      </div>`).join('');
+  }
+
+  function open() {
+    renderList();
+    const ov = document.getElementById('sound-sheet-overlay');
+    if (!ov) return;
+    ov.style.display = 'flex';
+    requestAnimationFrame(() => ov.classList.add('open'));
+  }
+
+  function close() {
+    SoundEngine.endPreview();
+    const ov = document.getElementById('sound-sheet-overlay');
+    if (!ov) return;
+    ov.classList.remove('open');
+    ov.addEventListener('transitionend', () => { ov.style.display = 'none'; }, { once: true });
+  }
+
+  function select(key) {
+    setValue(key);
+    close();
+  }
+
+  function setValue(key) {
+    const input = document.getElementById('t-sound');
+    if (input) input.value = key;
+    const sound = allSounds.find(s => s.key === key);
+    const iconEl  = document.getElementById('sound-trigger-icon');
+    const labelEl = document.getElementById('sound-trigger-label');
+    if (iconEl)  iconEl.textContent  = sound ? sound.icon  : '🎵';
+    if (labelEl) labelEl.textContent = sound ? sound.label : key;
+  }
+
+  function addCustomSounds(list) {
+    list.forEach(({ name, file }) => {
+      if (!allSounds.find(s => s.key === file))
+        allSounds.push({ key: file, icon: '🎵', label: name });
+    });
+  }
+
+  return { open, close, select, setValue, addCustomSounds };
 })();
 
 // ── Vibration Engine ───────────────────────────────────────────────────────
@@ -452,7 +526,7 @@ const App = (() => {
     drums.h.setValue(saved.hours);
     drums.m.setValue(saved.minutes);
     drums.s.setValue(saved.seconds);
-    $('t-sound').value    = saved.sound;
+    SoundSelector.setValue(saved.sound);
     $('btn-save').textContent = '✓ Update Timer';
     $('edit-banner').style.display  = 'flex';
     $('edit-banner-name').textContent = saved.name;
@@ -907,21 +981,9 @@ const App = (() => {
       .then(r => r.json())
       .then(list => {
         if (!list || !list.length) return;
-        const sel = $('t-sound');
-        const group = document.createElement('optgroup');
-        group.label = 'Custom';
-        list.forEach(({ name, file }) => {
-          const opt = document.createElement('option');
-          opt.value = file;
-          opt.textContent = name;
-          group.appendChild(opt);
-        });
-        sel.appendChild(group);
-        // Restore saved sound selection if it belongs to a custom sound
-        if (editingId) {
-          const saved = loadSaved().find(s => s.id === editingId);
-          if (saved) sel.value = saved.sound;
-        }
+        const currentKey = $('t-sound').value;
+        SoundSelector.addCustomSounds(list);
+        SoundSelector.setValue(currentKey);
       })
       .catch(() => {});
   }
