@@ -61,6 +61,17 @@ Active (in-memory) timers add: `{ remaining, state, intervalId, workerRef }`.
 
 Color palette is defined via CSS custom properties on `:root` in `style.css`. Primary accent is `#6c63ff` (purple). Timer circle colors cycle through an 8-color palette via `nextColor()` in `app.js`.
 
+## Token Efficiency
+
+- Read only the specific lines needed (`offset`/`limit`) rather than entire files.
+- Use `grep` or `find` to locate symbols before reading; avoid reading files speculatively.
+- Prefer `Edit` over `Write` for changes — it sends only the diff.
+- Batch independent tool calls in a single message to avoid round-trip overhead.
+- Avoid re-reading files already in context; refer to previously seen content instead.
+- Skip explanatory comments in code; keep commit messages and prose responses concise.
+- Do not create intermediate planning documents; reason in the conversation and act.
+- Use targeted `grep` patterns (`-n`, `-A`, `-B`) to pull just the relevant lines rather than reading whole sections.
+
 ## Development Roadmap (Priority Order)
 
 1. **Timer repeat/loop mode** — Allow a timer to auto-restart when done. Critical for workouts, Pomodoro, and interval training. Add a `repeat` boolean to the saved-timer schema and handle the `done` event in `app.js` by re-triggering `start`.
