@@ -6,6 +6,8 @@
   { "name": "Alert Sound Loop", "file": "alert-sound-loop.mp3" },
   { "name": "Message Alert", "file": "message-alert.mp3" },
   { "name": "Tick Tock Clock Timer", "file": "tick-tock-clock-timer.wav" },
-  { "name": "Hard Boiled Baby", "file": "Hard Boiled Baby.mp3" }
+  { "name": "Hard Boiled Baby", "file": "Hard Boiled Baby.mp3" },
+  { "name": "Salt Roasted Chicken", "file": "Salt Roasted Chicken.mp3" }
+
 
 ]
